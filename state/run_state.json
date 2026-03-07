@@ -1,11 +1,11 @@
 {
   "status": "stopped",
-  "last_updated": "2026-03-07T23:40:00+09:00",
+  "last_updated": "2026-03-08T12:00:00Z",
   "last_cycle_id": "task-e2e-002",
-  "last_completed_step": "e2e-test-complete",
-  "started_by": null,
-  "stopped_by": "user",
-  "pause_reason": null,
+  "last_completed_step": "verify-pass",
+  "started_by": "user",
+  "stopped_by": "system",
+  "pause_reason": "container rebuild — git integration",
   "total_cycles": 1,
   "config": {
     "max_cycles_without_progress": 5,

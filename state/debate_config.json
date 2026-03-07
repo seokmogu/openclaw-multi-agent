@@ -27,6 +27,14 @@
       "cli": "/project/tools/cli/gemini.sh",
       "model": "gemini-2.5-pro",
       "role_prompt": "You are the Verifier. Check the implementation against requirements. Run tests if available. You MUST respond with a JSON object containing: claim (PASS or FAIL with summary), evidence (array of test outputs and observations), risk (array of untested areas), next_action (ship it or fix instructions), checks (array of {name, status, output}), confidence (float 0.0-1.0), verdict (PASS|FAIL)."
+    },
+    "git": {
+      "cli": "/project/tools/cli/git.sh",
+      "role_prompt": "Git operations wrapper for repository management. Use --op flag to specify operation: clone, branch-create, checkout, commit, push, status, diff, log, rebase."
+    },
+    "gh": {
+      "cli": "/project/tools/cli/gh.sh",
+      "role_prompt": "GitHub CLI wrapper for PR management. Use --op flag to specify operation: pr-create, pr-list, pr-status, pr-close, pr-view, repo-view. Always creates draft PRs."
     }
   },
   "json_contract": {
@@ -35,5 +43,18 @@
     "max_claim_length": 200,
     "min_evidence_count": 1,
     "min_risk_count": 1
+  },
+  "fast_path": {
+    "enabled": true,
+    "labels": ["trivial", "typo", "docs", "config"],
+    "description": "Tasks with these labels skip the debate phase and go directly: Planner -> Implementer -> Verifier"
+  },
+  "git": {
+    "branch_prefix": "ocma",
+    "always_draft_pr": true,
+    "max_clone_age_hours": 24,
+    "lease_ttl_seconds": 3600,
+    "cleanup_on_complete": true,
+    "protected_branches": ["main", "master", "develop"]
   }
 }

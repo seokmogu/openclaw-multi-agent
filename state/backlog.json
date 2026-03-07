@@ -14,7 +14,15 @@
       "debate_epochs": 2,
       "retry_count": 0,
       "result": "CONVERGED - Approved for implementation after 2 epochs",
-      "error": null
+      "error": null,
+      "target_repo": null,
+      "github_repo": null,
+      "base_branch": null,
+      "branch_name": null,
+      "clone_path": null,
+      "pr_number": null,
+      "pr_url": null,
+      "fast_path": false
     },
     {
       "id": "task-e2e-002",
@@ -29,8 +37,16 @@
       "dependencies": [],
       "debate_epochs": 1,
       "retry_count": 1,
-      "result": null,
-      "error": null
+      "result": "CONVERGED in 1 epoch. Implementation retry 1: fixed algorithm mismatch. Verified PASS (confidence: 0.85). 9/10 checks passed. Files: /project/output/task-e2e-002/src/rate-limiter.ts",
+      "error": null,
+      "target_repo": null,
+      "github_repo": null,
+      "base_branch": null,
+      "branch_name": null,
+      "clone_path": null,
+      "pr_number": null,
+      "pr_url": null,
+      "fast_path": false
     }
   ]
 }

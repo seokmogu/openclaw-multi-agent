@@ -1,5 +1,10 @@
 #!/bin/sh
-# Ensure auth-profiles.json symlinks exist for all agents
+# OCMA Container Entrypoint
+# Sets up auth symlinks, git config, and GitHub credentials on container start.
+
+set -e
+
+# ── 1. Auth Profile Symlinks ────────────────────────────────────────────────
 MAIN_AUTH="/home/node/.openclaw/auth-profiles.json"
 if [ -f "$MAIN_AUTH" ]; then
   for agent in orchestrator planner implementer critic verifier; do
@@ -10,5 +15,49 @@ if [ -f "$MAIN_AUTH" ]; then
     fi
   done
 fi
+
+# ── 2. Git Global Config ────────────────────────────────────────────────────
+git config --global user.name "${GIT_AUTHOR_NAME:-OCMA Bot}"
+git config --global user.email "${GIT_AUTHOR_EMAIL:-ocma-bot@seokmogu.dev}"
+git config --global init.defaultBranch main
+git config --global gc.auto 0
+git config --global gc.autodetach false
+git config --global advice.detachedHead false
+
+# ── 3. GitHub CLI Auth ───────────────────────────────────────────────────────
+_token="${GH_TOKEN:-}"
+if [ -z "$_token" ] && command -v gh >/dev/null 2>&1; then
+  _token="$(gh auth token 2>/dev/null || true)"
+fi
+
+if [ -n "$_token" ]; then
+  export GH_TOKEN="$_token"
+  # $_token expanded now (double quotes); git credential helper receives literal value
+  git config --global credential.helper "!f() { echo username=x-access-token; echo password=$_token; }; f"
+  echo "[entrypoint] GitHub auth configured"
+else
+  echo "[entrypoint] WARNING: GH_TOKEN not set and gh auth token failed. git push/gh commands may fail."
+fi
+
+# ── 4. SSH Known Hosts ──────────────────────────────────────────────────────
+# Add github.com to known_hosts if SSH keys are mounted
+if [ -d "$HOME/.ssh" ] && [ ! -f "$HOME/.ssh/known_hosts" ]; then
+  ssh-keyscan -t ed25519 github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+fi
+
+# ── 5. Workspace Directories ────────────────────────────────────────────────
+# Create writable work directories for agent clones
+mkdir -p /project/workspaces/.repos   # Bare repo cache
+mkdir -p /project/workspaces/.clones  # Active task clones
+
+# ── 6. Cleanup Stale Git State ──────────────────────────────────────────────
+# Prune orphaned worktrees from any previous crashes
+for repo_dir in /project/workspaces/.repos/*/; do
+  if [ -d "$repo_dir" ]; then
+    git -C "$repo_dir" worktree prune 2>/dev/null || true
+  fi
+done
+
+echo "[entrypoint] OCMA container initialized successfully"
 
 exec "$@"

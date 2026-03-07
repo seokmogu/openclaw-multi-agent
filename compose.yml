@@ -1,4 +1,4 @@
-# OpenClaw Multi-Agent Debate System — Podman Compose
+# OpenClaw Multi-Agent Service Implementation System — Podman Compose
 #
 # 사용법:
 #   podman-compose up -d        # 시작
@@ -23,6 +23,16 @@ services:
       HOME: /home/node
       TERM: xterm-256color
       PROJECT_ROOT: /project
+
+      # Git configuration
+      GIT_AUTHOR_NAME: "OCMA Bot"
+      GIT_AUTHOR_EMAIL: "ocma-bot@seokmogu.dev"
+      GIT_COMMITTER_NAME: "OCMA Bot"
+      GIT_COMMITTER_EMAIL: "ocma-bot@seokmogu.dev"
+      GIT_OPTIONAL_LOCKS: "0"
+
+      # GitHub auth (refresh token in .env before restart)
+      GH_TOKEN: ${GH_TOKEN:-}
 
       # Gateway auth
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
@@ -58,6 +68,13 @@ services:
       - ${HOME}/.claude:/home/node/.claude:ro
       - ${HOME}/.codex:/home/node/.codex:ro
       - ${HOME}/.gemini:/home/node/.gemini:rw
+
+      # Host project repos (read-only reference)
+      - ${HOME}/project:/workspace:ro
+      # GitHub CLI auth (read-only — for gh auth token extraction)
+      - ${HOME}/.config/gh:/home/node/.config/gh:ro
+      # SSH keys (read-only — fallback auth for git push)
+      - ${HOME}/.ssh:/home/node/.ssh:ro
 
     ports:
       - "${HOST_GATEWAY_PORT:-19789}:18789"

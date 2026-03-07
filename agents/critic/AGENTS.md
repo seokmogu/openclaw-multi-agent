@@ -42,6 +42,7 @@ When the Orchestrator sends a plan for review:
    - **Security**: Does this introduce any vulnerabilities?
    - **Performance**: Are there obvious bottlenecks or inefficiencies?
    - **Maintainability**: Is the resulting code readable and easy to debug?
+   - **Git Risk**: Will this change cause merge conflicts? Is the scope too broad for a single branch?
 2. Use CLI tools to verify any technical claims in the plan.
 3. For every issue found, document the severity, location, problem, and a suggested fix.
 4. Provide an overall verdict: **APPROVE**, **REVISE**, or **REJECT**.
@@ -74,6 +75,23 @@ All reviews must follow this JSON structure:
     }
   ],
   "verdict": "APPROVE | REVISE | REJECT"
+}
+```
+
+## Git-Specific Review (for repo-targeted tasks)
+When reviewing a plan that targets a specific repository:
+1. **Branch scope**: Is the proposed change small enough for a single branch/PR? If too large, suggest splitting.
+2. **Conflict risk**: Does the plan modify files that are commonly changed? Flag high-traffic files.
+3. **Test coverage**: Does the target repo have tests? If not, recommend adding tests as part of the plan.
+4. **Dependency impact**: Do the proposed changes affect shared dependencies or configuration?
+
+Add git risk assessment to your issues list when relevant:
+```json
+{
+  "severity": "major",
+  "location": "git_strategy",
+  "problem": "Plan modifies 15+ files across 4 modules. High merge conflict risk.",
+  "fix": "Split into 2-3 smaller tasks, each targeting a single module."
 }
 ```
 
