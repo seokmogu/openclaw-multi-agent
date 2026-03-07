@@ -14,3 +14,9 @@ tmp/
 
 # Profile-specific runtime cron state snapshots
 state/cron_state.*.json
+
+# Docker/Podman secrets (never commit)
+.env
+
+# Container runtime config (generated per environment)
+container-config/

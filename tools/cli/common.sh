@@ -6,7 +6,7 @@
 set -e
 
 # ─── Configuration ───────────────────────────────────────────────────────────
-PROJECT_ROOT="/Users/seokmogu/project/openclaw-multi-agent"
+PROJECT_ROOT="${PROJECT_ROOT:-/Users/seokmogu/project/openclaw-multi-agent}"
 STATE_DIR="${PROJECT_ROOT}/state"
 COST_LEDGER="${STATE_DIR}/cost_ledger.json"
 MAX_OUTPUT="${MAX_OUTPUT:-50000}"

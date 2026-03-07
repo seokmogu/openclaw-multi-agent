@@ -1,0 +1,84 @@
+# OpenClaw Multi-Agent Debate System — Podman Compose
+#
+# 사용법:
+#   podman-compose up -d        # 시작
+#   podman-compose logs -f      # 로그 확인
+#   podman-compose down         # 중지
+#   podman-compose exec gateway openclaw channels status  # 채널 상태
+#
+# 포트 격리:
+#   컨테이너 내부는 항상 18789. 호스트 포트는 .env의 HOST_GATEWAY_PORT로 변경.
+#   다른 OpenClaw 프로젝트와 절대 충돌하지 않음.
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ocma-gateway
+    restart: unless-stopped
+    init: true
+
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      PROJECT_ROOT: /project
+
+      # Gateway auth
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+
+      # Slack integration
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+
+      # LLM provider keys (agents use these via CLI tools)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+
+    volumes:
+      # OpenClaw config + agent state
+      - ./container-config:/home/node/.openclaw
+
+      # Project files (agents, state, tools, skills)
+      - ./agents:/project/agents:ro
+      - ./tools:/project/tools:ro
+      - ./skills:/project/skills:ro
+      - ./state:/project/state
+      - ./workspaces:/project/workspaces
+
+      # CLI credential dirs from host (read-only)
+      - ${HOME}/.claude:/home/node/.claude:ro
+      - ${HOME}/.codex:/home/node/.codex:ro
+      - ${HOME}/.gemini:/home/node/.gemini:ro
+
+    ports:
+      - "${HOST_GATEWAY_PORT:-19789}:18789"
+
+    command:
+      - node
+      - dist/index.js
+      - gateway
+      - --bind
+      - lan
+      - --port
+      - "18789"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
