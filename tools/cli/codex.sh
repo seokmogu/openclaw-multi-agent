@@ -99,7 +99,6 @@ main() {
     log_info "Task ${CLI_TASK_ID}: Running codex (model: ${CLI_MODEL}, policy: ${APPROVAL_POLICY})"
     log_info "Prompt: $(printf '%.100s' "$CLI_PROMPT")..."
 
-    # Execute with standard wrapper flow (budget check, timeout, truncation, cost logging)
     exec_cli_wrapper "$TOOL_NAME" "$@"
     _exit=$?
 

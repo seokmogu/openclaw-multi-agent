@@ -83,11 +83,6 @@ main() {
         usage
     fi
 
-    if ! check_budget; then
-        log_error "${TOOL_NAME}: Budget exceeded, aborting"
-        exit $EXIT_BUDGET_EXCEEDED
-    fi
-
     log_info "Task ${CLI_TASK_ID}: Running opencode"
     log_info "Prompt: $(printf '%.100s' "$CLI_PROMPT")..."
 
@@ -127,7 +122,6 @@ main() {
     _duration=$((_end - _start))
 
     truncate_output "$_outfile"
-    log_cost "$TOOL_NAME" "$_duration" "$_exit_code" "$CLI_TASK_ID"
     cat "$_outfile"
 
     if [ "$_exit_code" -eq $EXIT_TIMEOUT ]; then

@@ -18,7 +18,6 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="$PROJECT_DIR/state"
 CONFIG_FILE="$PROJECT_DIR/openclaw.json"
 RUN_STATE_FILE="$STATE_DIR/run_state.json"
-COST_LEDGER_FILE="$STATE_DIR/cost_ledger.json"
 OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-openclaw-multi-agent}"
 PROFILE_SAFE="$(printf "%s" "$OPENCLAW_PROFILE" | tr -c '[:alnum:]_.-' '_')"
 OPENCLAW_CMD=(openclaw --profile "$OPENCLAW_PROFILE")
@@ -185,69 +184,13 @@ with open('$RUN_STATE_FILE', 'w') as f:
 
 log_ok "run_state.json 업데이트 완료"
 
-# ─────────────────────────────────────────────
-# Step 5: 비용 요약 출력
-# ─────────────────────────────────────────────
-echo ""
-echo -e "${BOLD}${CYAN}── Cost Summary ──────────────────────────────────${NC}"
-
-if [ -f "$COST_LEDGER_FILE" ]; then
-    python3 -c "
-import json
-
-with open('$COST_LEDGER_FILE') as f:
-    ledger = json.load(f)
-
-total = ledger.get('total_cost_usd', 0.0)
-budget = ledger.get('hourly_budget_usd', ledger.get('budget_limit_usd', 20.0))
-entries = ledger.get('entries', [])
-debates = ledger.get('debates', [])
-run_count = len(entries) if isinstance(entries, list) and entries else len(debates)
-remaining = budget - total
-usage_pct = (total / budget * 100) if budget > 0 else 0
-
-print(f'  Total cost:     \${total:.2f}')
-print(f'  Hourly budget:  \${budget:.2f}')
-print(f'  Remaining:      \${remaining:.2f} ({100-usage_pct:.1f}%)')
-print(f'  Runs logged:    {run_count}')
-
-if entries:
-    last = entries[-1]
-    print('  Last run:       {} ({})'.format(last.get('tool', 'unknown'), last.get('task_id', 'n/a')))
-elif debates:
-    last = debates[-1]
-    last_id = last.get('debate_id', 'unknown')
-    last_cost = sum(e.get('epoch_cost', 0) for e in last.get('epochs', []))
-    print(f'  Last debate:    {last_id} (\${last_cost:.2f})')
-"
-else
-    echo -e "  ${DIM}비용 데이터 없음 (cost_ledger.json 미발견)${NC}"
-fi
-
-echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
-
-# ─────────────────────────────────────────────
-# Step 6: Slack 알림
-# ─────────────────────────────────────────────
 log_info "Slack 알림 전송 중..."
 
 SLACK_WEBHOOK="${SLACK_WEBHOOK_URL:-}"
 
 if [ -n "$SLACK_WEBHOOK" ]; then
-    # 비용 정보 가져오기
-    COST_INFO=""
-    if [ -f "$COST_LEDGER_FILE" ]; then
-        COST_INFO=$(python3 -c "
-import json
-with open('$COST_LEDGER_FILE') as f:
-    ledger = json.load(f)
-total = ledger.get('total_cost_usd', 0)
-print(f'Total cost: \${total:.2f}')
-" 2>/dev/null || echo "N/A")
-    fi
-
     HOSTNAME=$(hostname)
-    STOP_MSG="{\"text\": \":octagonal_sign: *OpenClaw Multi-Agent System Stopped*\n\`Host:\` ${HOSTNAME}\n\`Time:\` $(now_iso)\n\`Stopped by:\` manual\n\`${COST_INFO}\`\"}"
+    STOP_MSG="{\"text\": \":octagonal_sign: *OpenClaw Multi-Agent System Stopped*\n\`Host:\` ${HOSTNAME}\n\`Time:\` $(now_iso)\n\`Stopped by:\` manual\"}"
 
     if curl -s -X POST -H 'Content-type: application/json' \
         --data "$STOP_MSG" \

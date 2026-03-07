@@ -4,9 +4,6 @@
 #
 # 1. run_state.json 읽기
 # 2. backlog.json (대기/진행 중 작업 수)
-# 3. cost_ledger.json (현재 비용)
-# 4. 활성 에이전트 세션 표시
-# 5. 컬러 출력
 #
 
 set -euo pipefail
@@ -19,7 +16,6 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="$PROJECT_DIR/state"
 CONFIG_FILE="$PROJECT_DIR/openclaw.json"
 RUN_STATE_FILE="$STATE_DIR/run_state.json"
-COST_LEDGER_FILE="$STATE_DIR/cost_ledger.json"
 BACKLOG_FILE="$STATE_DIR/backlog.json"
 DECISION_LOG_FILE="$STATE_DIR/decision_log.md"
 DEBATE_HASHES_FILE="$STATE_DIR/debate_hashes.json"
@@ -214,74 +210,6 @@ fi
 echo -e "${MAGENTA}└─────────────────────────────────────────────────────────┘${NC}"
 echo ""
 
-# ─────────────────────────────────────────────
-# Section 3: 비용 현황
-# ─────────────────────────────────────────────
-echo -e "${BOLD}${YELLOW}┌─ Cost Dashboard ────────────────────────────────────────┐${NC}"
-
-if [ -f "$COST_LEDGER_FILE" ]; then
-    python3 -c "
-import json
-
-CYAN = '\033[0;36m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-RED = '\033[0;31m'
-DIM = '\033[2m'
-NC = '\033[0m'
-BOLD = '\033[1m'
-
-with open('$COST_LEDGER_FILE') as f:
-    ledger = json.load(f)
-
-total = ledger.get('total_cost_usd', 0.0)
-budget = ledger.get('hourly_budget_usd', ledger.get('budget_limit_usd', 20.0))
-remaining = budget - total
-usage_pct = (total / budget * 100) if budget > 0 else 0
-entries = ledger.get('entries', [])
-debates = ledger.get('debates', [])
-runs = len(entries) if isinstance(entries, list) and entries else len(debates)
-
-# 사용량에 따른 색상
-if usage_pct > 80:
-    pct_color = RED
-elif usage_pct > 50:
-    pct_color = YELLOW
-else:
-    pct_color = GREEN
-
-# 프로그레스 바
-bar_width = 30
-filled = int(bar_width * usage_pct / 100)
-bar = '█' * filled + '░' * (bar_width - filled)
-
-print(f'  {CYAN}Total spent:{NC}   \${total:.2f}')
-print(f'  {CYAN}Hourly budget:{NC} \${budget:.2f}')
-print(f'  {CYAN}Remaining:{NC}     \${remaining:.2f}')
-print(f'  {CYAN}Usage:{NC}         {pct_color}{bar} {usage_pct:.1f}%{NC}')
-print(f'  {CYAN}Runs logged:{NC}   {runs}')
-
-if entries:
-    last = entries[-1]
-    print('  {}Last run:{}      {} ({})'.format(CYAN, NC, last.get('tool', 'unknown'), last.get('task_id', 'n/a')))
-elif debates:
-    last = debates[-1]
-    d_id = last.get('debate_id', 'N/A')
-    d_cost = sum(e.get('epoch_cost', 0) for e in last.get('epochs', []))
-    d_epochs = len(last.get('epochs', []))
-    print(f'  {CYAN}Last debate:{NC}   {d_id}')
-    print(f'  {CYAN}  Cost:{NC}        \${d_cost:.2f} ({d_epochs} epoch(s))')
-" 2>/dev/null || echo -e "  ${DIM}cost_ledger.json 읽기 실패${NC}"
-else
-    echo -e "  ${DIM}비용 데이터 없음 (cost_ledger.json 미발견)${NC}"
-fi
-
-echo -e "${YELLOW}└─────────────────────────────────────────────────────────┘${NC}"
-echo ""
-
-# ─────────────────────────────────────────────
-# Section 4: 활성 에이전트 세션
-# ─────────────────────────────────────────────
 echo -e "${BOLD}${GREEN}┌─ Agent Sessions ────────────────────────────────────────┐${NC}"
 
 if command -v openclaw &> /dev/null; then
@@ -327,9 +255,6 @@ done
 echo -e "${GREEN}└─────────────────────────────────────────────────────────┘${NC}"
 echo ""
 
-# ─────────────────────────────────────────────
-# Section 5: 토론 이력 (최근)
-# ─────────────────────────────────────────────
 echo -e "${BOLD}${CYAN}┌─ Recent Decisions ──────────────────────────────────────┐${NC}"
 
 if [ -f "$DECISION_LOG_FILE" ]; then

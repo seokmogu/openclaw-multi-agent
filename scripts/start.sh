@@ -19,7 +19,6 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="$PROJECT_DIR/state"
 CONFIG_FILE="$PROJECT_DIR/openclaw.json"
 RUN_STATE_FILE="$STATE_DIR/run_state.json"
-COST_LEDGER_FILE="$STATE_DIR/cost_ledger.json"
 OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-openclaw-multi-agent}"
 OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-$(python3 -c "import zlib; s='${OPENCLAW_PROFILE}'; print(19000 + (zlib.crc32(s.encode()) % 2000))")}" 
 PROFILE_SAFE="$(printf "%s" "$OPENCLAW_PROFILE" | tr -c '[:alnum:]_.-' '_')"
@@ -126,21 +125,6 @@ if [ ! -f "$RUN_STATE_FILE" ]; then
   "total_cycles": 0,
   "current_task": null,
   "pid": null
-}
-EOF
-fi
-
-# cost_ledger.json이 없으면 초기 생성
-if [ ! -f "$COST_LEDGER_FILE" ]; then
-    log_info "cost_ledger.json 초기 생성..."
-    cat > "$COST_LEDGER_FILE" << EOF
-{
-  "total_cost_usd": 0.0,
-  "total_input_tokens": 0,
-  "total_output_tokens": 0,
-  "hourly_budget_usd": 20,
-  "entries": [],
-  "hourly_totals": {}
 }
 EOF
 fi

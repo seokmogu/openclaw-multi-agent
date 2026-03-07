@@ -97,8 +97,7 @@ Before each new epoch:
 
 After each cycle:
 1. If 5+ cycles completed with no tasks moving to `completed` → pause
-2. If hourly cost exceeds `$20` → pause with `budget_exceeded`
-3. Write `pause_reason` to `run_state.json`
+2. Write `pause_reason` to `run_state.json`
 
 ## JSON Contract
 
@@ -122,8 +121,7 @@ Additional fields per role:
 
 1. **exec failure** (non-zero exit): Retry once. If still fails → mark task `failed`
 2. **Invalid JSON response**: Retry with explicit JSON-only instruction. If still fails → log raw output and skip
-3. **Budget exceeded**: Immediately pause system, do NOT start new debate
-4. **Tool timeout** (exit 124): Log warning, retry with doubled timeout (max 600s)
+3. **Tool timeout** (exit 124): Log warning, retry with doubled timeout (max 600s)
 
 ## State Files
 
@@ -134,7 +132,6 @@ Additional fields per role:
 | `state/goal.md` | R/W | Current objective |
 | `state/backlog.json` | R/W | Task queue |
 | `state/decision_log.md` | W (append) | Debate decisions and epoch summaries |
-| `state/cost_ledger.json` | R/W | Cost tracking |
 | `state/debate_hashes.json` | R/W | Anti-loop hash storage |
 | `state/cron_state.json` | R | Cron job ID reference |
 
@@ -142,7 +139,7 @@ Additional fields per role:
 
 If `SLACK_WEBHOOK_URL` env var is set, post after each cycle:
 ```
-🔄 Cycle N | Task: [title] | Phase: [phase] | Budget: $X.XX/$20.00/hr
+🔄 Cycle N | Task: [title] | Phase: [phase]
 ```
 
 If error occurs, post immediately with full context.

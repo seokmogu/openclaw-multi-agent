@@ -213,42 +213,6 @@ if current_hash in previous_hashes:
 - 해시가 `state/debate_hashes.json`에 이미 존재하면 stale debate로 판정
 - 즉시 타이브레이크를 실행하고 다음 단계로 진행
 
-### 비용 제한
-
-```json
-{
-  "max_cost_per_debate": 5.00,
-  "currency": "USD",
-  "cost_tracking": "state/cost_ledger.json"
-}
-```
-
-- 각 `sessions_send` 호출마다 예상 비용을 `cost_ledger.json`에 기록
-- 누적 비용이 `max_cost_per_debate`를 초과하면 즉시 토론을 중단
-- 중단 시 현재까지의 best evidence로 Orchestrator가 결정
-- 비용 초과로 인한 강제 결정은 `[COST-LIMIT]` 태그로 기록
-
-### 비용 추적 형식
-
-```json
-{
-  "debate_id": "auth-implementation-001",
-  "epochs": [
-    {
-      "epoch": 1,
-      "calls": [
-        {"agent": "planner", "action": "propose", "tokens_in": 1200, "tokens_out": 800, "cost_usd": 0.15},
-        {"agent": "critic", "action": "challenge", "tokens_in": 1500, "tokens_out": 900, "cost_usd": 0.18},
-        {"agent": "planner", "action": "revise", "tokens_in": 1800, "tokens_out": 700, "cost_usd": 0.16}
-      ],
-      "epoch_cost": 0.49
-    }
-  ],
-  "total_cost": 0.49,
-  "budget_remaining": 4.51
-}
-```
-
 ## 6. Example Debate Flow
 
 실제 sessions_send 호출을 포함한 전체 토론 흐름 예시.
@@ -435,7 +399,6 @@ openclaw sessions_send \
 |------|------|------|
 | Decision Log | `state/decision_log.md` | 각 epoch 요약 및 최종 결정 기록 |
 | Debate Hashes | `state/debate_hashes.json` | 루프 감지용 해시 저장 |
-| Cost Ledger | `state/cost_ledger.json` | 비용 추적 |
 | Run State | `state/run_state.json` | 시스템 실행 상태 |
 
 ## 8. Orchestrator Decision Matrix
@@ -457,7 +420,6 @@ openclaw sessions_send \
 {
   "debate": {
     "max_epochs": 3,
-    "max_cost_per_debate_usd": 5.00,
     "convergence_threshold": 0.7,
     "epoch_summary_max_tokens": 500,
     "anti_loop_enabled": true,
@@ -469,7 +431,6 @@ openclaw sessions_send \
 | 파라미터 | 기본값 | 설명 |
 |---------|-------|------|
 | `max_epochs` | 3 | 최대 에포크 수 |
-| `max_cost_per_debate_usd` | 5.00 | 토론당 최대 비용 (USD) |
 | `convergence_threshold` | 0.7 | Verifier 수렴 판정 기준 |
 | `epoch_summary_max_tokens` | 500 | 에포크 요약 최대 토큰 |
 | `anti_loop_enabled` | true | 루프 감지 활성화 |

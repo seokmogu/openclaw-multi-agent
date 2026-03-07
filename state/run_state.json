@@ -7,10 +7,8 @@
   "stopped_by": null,
   "pause_reason": null,
   "total_cycles": 0,
-  "total_cost_usd": 0.0,
   "config": {
     "max_cycles_without_progress": 5,
-    "per_hour_budget_usd": 20,
     "per_tool_timeout_sec": 600,
     "max_retries": 2,
     "max_debate_epochs": 3

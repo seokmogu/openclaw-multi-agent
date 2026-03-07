@@ -1,6 +1,5 @@
 {
   "max_epochs": 3,
-  "max_cost_per_debate_usd": 5.00,
   "convergence_threshold": 0.7,
   "epoch_summary_max_tokens": 500,
   "anti_loop_enabled": true,
@@ -8,7 +7,6 @@
   "max_cycles_without_progress": 5,
   "max_implementation_retries": 2,
   "per_tool_timeout_sec": 600,
-  "hourly_budget_usd": 20,
   "tools": {
     "planner": {
       "cli": "./tools/cli/claude.sh",

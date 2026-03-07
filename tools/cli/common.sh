@@ -1,6 +1,5 @@
 #!/bin/sh
 # common.sh — Shared functions for OpenClaw CLI wrappers
-# Provides: logging, cost tracking, timeout handling, output truncation, budget checks
 # POSIX-compatible (macOS/Linux)
 
 set -e
@@ -8,15 +7,12 @@ set -e
 # ─── Configuration ───────────────────────────────────────────────────────────
 PROJECT_ROOT="${PROJECT_ROOT:-/Users/seokmogu/project/openclaw-multi-agent}"
 STATE_DIR="${PROJECT_ROOT}/state"
-COST_LEDGER="${STATE_DIR}/cost_ledger.json"
 MAX_OUTPUT="${MAX_OUTPUT:-50000}"
 DEFAULT_TIMEOUT="${DEFAULT_TIMEOUT:-600}"
-HOURLY_BUDGET="${HOURLY_BUDGET:-20}"
 
 # Exit codes
 EXIT_SUCCESS=0
 EXIT_ERROR=1
-EXIT_BUDGET_EXCEEDED=2
 EXIT_TIMEOUT=124
 
 # ─── Timestamp Helpers ──────────────────────────────────────────────────────
@@ -56,139 +52,6 @@ log_warn() {
 
 log_error() {
     printf "[%s] [ERROR] %s\n" "$(timestamp_iso)" "$*" >&2
-}
-
-# ─── Cost Ledger ─────────────────────────────────────────────────────────────
-
-# Ensure cost_ledger.json exists with proper structure
-init_cost_ledger() {
-    mkdir -p "$STATE_DIR"
-    if [ ! -f "$COST_LEDGER" ]; then
-        printf '{"entries":[]}\n' > "$COST_LEDGER"
-    fi
-    # Validate it's valid JSON with entries array; recreate if corrupt
-    if ! _validate_ledger 2>/dev/null; then
-        log_warn "cost_ledger.json corrupt, recreating"
-        printf '{"entries":[]}\n' > "$COST_LEDGER"
-    fi
-}
-
-_validate_ledger() {
-    # Check file is valid JSON and has entries array
-    # Use python3 as a JSON validator (available on macOS)
-    python3 -c "
-import json, sys
-with open('${COST_LEDGER}') as f:
-    d = json.load(f)
-    assert isinstance(d.get('entries'), list)
-" 2>/dev/null
-}
-
-# Append a cost entry to the ledger
-# Usage: log_cost TOOL_NAME DURATION_SECS EXIT_CODE TASK_ID [EXTRA_JSON_FIELDS]
-log_cost() {
-    _tool="$1"
-    _duration="$2"
-    _exit_code="$3"
-    _task_id="$4"
-    _extra="${5:-}"
-
-    init_cost_ledger
-
-    _ts="$(timestamp_iso)"
-    _epoch="$(timestamp_epoch)"
-
-    # Build the entry JSON
-    _entry="{\"timestamp\":\"${_ts}\",\"epoch\":${_epoch},\"tool\":\"${_tool}\",\"duration_secs\":${_duration},\"exit_code\":${_exit_code},\"task_id\":\"${_task_id}\""
-
-    if [ -n "$_extra" ]; then
-        _entry="${_entry},${_extra}"
-    fi
-    _entry="${_entry}}"
-
-    # Atomic append using python3 (available on macOS, handles JSON properly)
-    python3 -c "
-import json, sys, fcntl
-
-entry = json.loads('${_entry}')
-ledger_path = '${COST_LEDGER}'
-
-with open(ledger_path, 'r+') as f:
-    fcntl.flock(f, fcntl.LOCK_EX)
-    try:
-        data = json.load(f)
-        if not isinstance(data.get('entries'), list):
-            data = {'entries': []}
-        data['entries'].append(entry)
-        f.seek(0)
-        f.truncate()
-        json.dump(data, f, indent=2)
-        f.write('\n')
-    finally:
-        fcntl.flock(f, fcntl.LOCK_UN)
-" 2>/dev/null
-
-    if [ $? -ne 0 ]; then
-        log_warn "Failed to write cost entry for task ${_task_id}"
-    else
-        log_info "Cost logged: tool=${_tool} duration=${_duration}s exit=${_exit_code} task=${_task_id}"
-    fi
-}
-
-# ─── Budget Check ────────────────────────────────────────────────────────────
-
-# Check if we're within the hourly budget
-# Returns 0 if within budget, 1 if over budget
-# Prints remaining budget info to stderr
-check_budget() {
-    _budget="${1:-$HOURLY_BUDGET}"
-
-    init_cost_ledger
-
-    _one_hour_ago="$(python3 -c "import time; print(int(time.time()) - 3600)")"
-
-    _result="$(python3 -c "
-import json, sys
-
-budget = float('${_budget}')
-one_hour_ago = int('${_one_hour_ago}')
-
-with open('${COST_LEDGER}') as f:
-    data = json.load(f)
-
-entries = data.get('entries', [])
-recent = [e for e in entries if e.get('epoch', 0) >= one_hour_ago]
-count = len(recent)
-total_duration = sum(e.get('duration_secs', 0) for e in recent)
-
-# Estimate cost: rough heuristic based on duration
-# Each tool invocation has a base cost + duration-proportional cost
-# Base: \$0.01 per call, Duration: \$0.001 per second
-estimated_cost = count * 0.01 + total_duration * 0.001
-
-remaining = budget - estimated_cost
-over = 'yes' if estimated_cost >= budget else 'no'
-
-print(f'{estimated_cost:.4f}|{remaining:.4f}|{count}|{over}')
-" 2>/dev/null)"
-
-    if [ -z "$_result" ]; then
-        log_warn "Budget check failed, allowing execution"
-        return 0
-    fi
-
-    _spent="$(echo "$_result" | cut -d'|' -f1)"
-    _remaining="$(echo "$_result" | cut -d'|' -f2)"
-    _call_count="$(echo "$_result" | cut -d'|' -f3)"
-    _over="$(echo "$_result" | cut -d'|' -f4)"
-
-    if [ "$_over" = "yes" ]; then
-        log_error "Budget exceeded: spent=\$${_spent} budget=\$${_budget}/hr calls=${_call_count} in last hour"
-        return 1
-    fi
-
-    log_info "Budget OK: spent=\$${_spent} remaining=\$${_remaining} calls=${_call_count}/hr"
-    return 0
 }
 
 # ─── Timeout Execution ──────────────────────────────────────────────────────
@@ -355,12 +218,6 @@ exec_cli_wrapper() {
     _tool_name="$1"
     shift
 
-    # Check budget
-    if ! check_budget; then
-        log_error "${_tool_name}: Budget exceeded, aborting"
-        exit $EXIT_BUDGET_EXCEEDED
-    fi
-
     # Change to working directory if specified
     if [ -n "$CLI_CWD" ]; then
         if [ -d "$CLI_CWD" ]; then
@@ -392,9 +249,6 @@ exec_cli_wrapper() {
     # Truncate output if needed
     truncate_output "$_outfile"
 
-    # Log cost
-    log_cost "$_tool_name" "$_duration" "$_exit_code" "$CLI_TASK_ID"
-
     # Output the result
     cat "$_outfile"
 
@@ -420,7 +274,7 @@ Usage: ${_tool} --prompt "..." --task-id "..." [--model "..."] [--timeout N] [--
 
 Required:
   --prompt TEXT     The prompt/instruction for the CLI tool
-  --task-id ID      Unique task identifier for cost tracking
+  --task-id ID      Unique task identifier
 
 Optional:
   --model MODEL     Model to use (tool-specific default)
@@ -430,7 +284,6 @@ ${_extra}
 Exit codes:
   0   Success
   1   Error
-  2   Budget exceeded
   124 Timeout
 EOF
 }
