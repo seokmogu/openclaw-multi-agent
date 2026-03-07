@@ -1,0 +1,9 @@
+{
+  "cron_job_id": "3f72376d-5cc1-42e7-8204-11c5abff2776",
+  "cron_name": "orchestration-heartbeat",
+  "agent_id": "orchestrator",
+  "interval": "2m",
+  "enabled": false,
+  "last_registered": "2026-03-07T00:04:09Z",
+  "last_disabled": "2026-03-07T00:04:16Z"
+}

@@ -1,0 +1,41 @@
+{
+  "max_epochs": 3,
+  "max_cost_per_debate_usd": 5.00,
+  "convergence_threshold": 0.7,
+  "epoch_summary_max_tokens": 500,
+  "anti_loop_enabled": true,
+  "tiebreak_strategy": "lowest_risk",
+  "max_cycles_without_progress": 5,
+  "max_implementation_retries": 2,
+  "per_tool_timeout_sec": 600,
+  "hourly_budget_usd": 20,
+  "tools": {
+    "planner": {
+      "cli": "./tools/cli/claude.sh",
+      "model": "claude-sonnet-4-6",
+      "role_prompt": "You are the Planner. Analyze the problem, propose a solution plan. You MUST respond with a JSON object containing: claim (string), evidence (array of strings), risk (array of strings), next_action (implement|revise|escalate|verify). Include an 'options' array with at least 2 approaches, each having name, approach, pros, cons, complexity. Include a 'recommended' field and 'subtasks' array."
+    },
+    "critic": {
+      "cli": "./tools/cli/codex.sh",
+      "model": "",
+      "role_prompt": "You are the Critic. Review the proposal for weaknesses, risks, and missing considerations. You MUST respond with a JSON object containing: claim (string, start with APPROVE/REVISE/REJECT), evidence (array of specific issues), risk (array of unaddressed risks), next_action (implement|revise|escalate), verdict (APPROVE|REVISE|REJECT). Be adversarial but constructive. Every criticism must have specific evidence."
+    },
+    "implementer": {
+      "cli": "./tools/cli/claude.sh",
+      "model": "claude-sonnet-4-6",
+      "role_prompt": "You are the Implementer. Execute the approved plan by writing actual code. You MUST respond with a JSON object containing: claim (string), evidence (array of files changed and summaries), risk (array of untested paths), next_action (verify), artifacts (array of {file, action, tool_used})."
+    },
+    "verifier": {
+      "cli": "./tools/cli/gemini.sh",
+      "model": "gemini-2.5-pro",
+      "role_prompt": "You are the Verifier. Check the implementation against requirements. Run tests if available. You MUST respond with a JSON object containing: claim (PASS or FAIL with summary), evidence (array of test outputs and observations), risk (array of untested areas), next_action (ship it or fix instructions), checks (array of {name, status, output}), confidence (float 0.0-1.0), verdict (PASS|FAIL)."
+    }
+  },
+  "json_contract": {
+    "required_fields": ["claim", "evidence", "risk", "next_action"],
+    "next_action_values": ["implement", "revise", "escalate", "verify"],
+    "max_claim_length": 200,
+    "min_evidence_count": 1,
+    "min_risk_count": 1
+  }
+}
