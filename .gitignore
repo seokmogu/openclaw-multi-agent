@@ -5,6 +5,15 @@ workspaces/
 workspaces/**/.openclaw/
 workspaces/**/.git/
 
+# Gateway auto-generated runtime files per agent
+agents/*/.openclaw/
+agents/*/BOOTSTRAP.md
+agents/*/HEARTBEAT.md
+agents/*/IDENTITY.md
+agents/*/TOOLS.md
+agents/*/USER.md
+agents/*/state/
+
 # Local auth material (never commit)
 agents/*/auth-profiles.json
 
