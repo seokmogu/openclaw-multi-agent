@@ -1,0 +1,13 @@
+.DS_Store
+
+# OpenClaw local runtime/workspace artifacts
+workspaces/
+workspaces/**/.openclaw/
+workspaces/**/.git/
+
+# Local auth material (never commit)
+agents/*/auth-profiles.json
+
+# Local gateway/runtime caches
+.omc/
+tmp/
