@@ -19,6 +19,9 @@ STATE_DIR="$PROJECT_DIR/state"
 CONFIG_FILE="$PROJECT_DIR/openclaw.json"
 RUN_STATE_FILE="$STATE_DIR/run_state.json"
 COST_LEDGER_FILE="$STATE_DIR/cost_ledger.json"
+OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-openclaw-multi-agent}"
+PROFILE_SAFE="$(printf "%s" "$OPENCLAW_PROFILE" | tr -c '[:alnum:]_.-' '_')"
+OPENCLAW_CMD=(openclaw --profile "$OPENCLAW_PROFILE")
 
 GRACEFUL_TIMEOUT=60
 
@@ -93,7 +96,7 @@ log_ok "상태 전환: running → stopping"
 # ─────────────────────────────────────────────
 log_info "Cron heartbeat 비활성화 중..."
 
-CRON_STATE_FILE="$STATE_DIR/cron_state.json"
+CRON_STATE_FILE="$STATE_DIR/cron_state.${PROFILE_SAFE}.json"
 CRON_DISABLED=false
 
 SAVED_CRON_ID=""
@@ -106,7 +109,7 @@ with open('$CRON_STATE_FILE') as f:
 fi
 
 if [ -n "$SAVED_CRON_ID" ]; then
-    if openclaw cron disable "$SAVED_CRON_ID" 2>/dev/null; then
+if "${OPENCLAW_CMD[@]}" cron disable "$SAVED_CRON_ID" 2>/dev/null; then
         CRON_DISABLED=true
         log_ok "Cron heartbeat 비활성화 완료 (ID: $SAVED_CRON_ID)"
     else
@@ -115,7 +118,7 @@ if [ -n "$SAVED_CRON_ID" ]; then
 fi
 
 if [ "$CRON_DISABLED" = false ]; then
-    CRON_LIST=$(openclaw cron list --json 2>/dev/null || echo "[]")
+    CRON_LIST=$("${OPENCLAW_CMD[@]}" cron list --json 2>/dev/null || echo "[]")
     CRON_IDS=$(echo "$CRON_LIST" | python3 -c "
 import json, sys
 try:
@@ -130,7 +133,7 @@ except: pass
     if [ -n "$CRON_IDS" ]; then
         while IFS= read -r cron_id; do
             if [ -n "$cron_id" ]; then
-                openclaw cron disable "$cron_id" 2>/dev/null && CRON_DISABLED=true
+                "${OPENCLAW_CMD[@]}" cron disable "$cron_id" 2>/dev/null && CRON_DISABLED=true
             fi
         done <<< "$CRON_IDS"
     fi

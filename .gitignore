@@ -11,3 +11,6 @@ agents/*/auth-profiles.json
 # Local gateway/runtime caches
 .omc/
 tmp/
+
+# Profile-specific runtime cron state snapshots
+state/cron_state.*.json

@@ -1,12 +1,12 @@
 {
   "status": "stopped",
-  "last_updated": "2026-03-07T00:04:18Z",
+  "last_updated": "2026-03-07T00:00:00Z",
   "last_cycle_id": null,
   "last_completed_step": null,
-  "started_by": "manual",
-  "stopped_by": "manual",
+  "started_by": null,
+  "stopped_by": null,
   "pause_reason": null,
-  "total_cycles": 1,
+  "total_cycles": 0,
   "total_cost_usd": 0.0,
   "config": {
     "max_cycles_without_progress": 5,

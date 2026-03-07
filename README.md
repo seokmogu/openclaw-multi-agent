@@ -149,6 +149,16 @@ openclaw agents add verifier \
 ./scripts/start.sh
 ```
 
+여러 OpenClaw 프로젝트를 같은 유저에서 동시에 운영할 때는 프로파일을 분리해서 충돌을 방지합니다:
+
+```bash
+OPENCLAW_PROFILE=openclaw-multi-agent ./scripts/start.sh
+OPENCLAW_PROFILE=openclaw-multi-agent ./scripts/status.sh
+OPENCLAW_PROFILE=openclaw-multi-agent ./scripts/stop.sh
+```
+
+기본값은 `openclaw-multi-agent`이며, 내부적으로 `openclaw --profile <name>`을 사용해 `~/.openclaw-<name>` 경로로 격리됩니다.
+
 ### 5. Slack에서 작업 전송
 
 Slack 채널에서 봇에게 메시지를 보냅니다:

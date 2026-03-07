@@ -23,6 +23,8 @@ COST_LEDGER_FILE="$STATE_DIR/cost_ledger.json"
 BACKLOG_FILE="$STATE_DIR/backlog.json"
 DECISION_LOG_FILE="$STATE_DIR/decision_log.md"
 DEBATE_HASHES_FILE="$STATE_DIR/debate_hashes.json"
+OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-openclaw-multi-agent}"
+OPENCLAW_CMD=(openclaw --profile "$OPENCLAW_PROFILE")
 
 # ─────────────────────────────────────────────
 # 색상 정의
@@ -283,9 +285,9 @@ echo ""
 echo -e "${BOLD}${GREEN}┌─ Agent Sessions ────────────────────────────────────────┐${NC}"
 
 if command -v openclaw &> /dev/null; then
-    if SESSIONS=$(openclaw sessions list 2>/dev/null); then
+    if SESSIONS=$("${OPENCLAW_CMD[@]}" sessions list 2>/dev/null); then
         :
-    elif SESSIONS=$(openclaw sessions_list 2>/dev/null); then
+    elif SESSIONS=$("${OPENCLAW_CMD[@]}" sessions_list 2>/dev/null); then
         :
     else
         SESSIONS=""
@@ -315,7 +317,7 @@ AGENTS=("orchestrator:Orchestrator — 토론 조율 및 최종 결정"
 
 for agent_info in "${AGENTS[@]}"; do
     IFS=':' read -r agent_name agent_desc <<< "$agent_info"
-    if command -v openclaw &> /dev/null && openclaw agents list 2>/dev/null | grep -q "$agent_name"; then
+    if command -v openclaw &> /dev/null && "${OPENCLAW_CMD[@]}" agents list 2>/dev/null | grep -q "$agent_name"; then
         echo -e "    ${GREEN}●${NC} ${agent_desc}"
     else
         echo -e "    ${DIM}○${NC} ${DIM}${agent_desc}${NC}"
@@ -375,5 +377,6 @@ fi
 # ─────────────────────────────────────────────
 echo -e "${DIM}──────────────────────────────────────────────────────────${NC}"
 echo -e "  ${DIM}Refreshed at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")${NC}"
+echo -e "  ${DIM}Profile:      $OPENCLAW_PROFILE${NC}"
 echo -e "  ${DIM}State dir:    $STATE_DIR${NC}"
 echo ""

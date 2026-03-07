@@ -20,6 +20,9 @@ STATE_DIR="$PROJECT_DIR/state"
 CONFIG_FILE="$PROJECT_DIR/openclaw.json"
 RUN_STATE_FILE="$STATE_DIR/run_state.json"
 COST_LEDGER_FILE="$STATE_DIR/cost_ledger.json"
+OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-openclaw-multi-agent}"
+OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-$(python3 -c "import zlib; s='${OPENCLAW_PROFILE}'; print(19000 + (zlib.crc32(s.encode()) % 2000))")}" 
+PROFILE_SAFE="$(printf "%s" "$OPENCLAW_PROFILE" | tr -c '[:alnum:]_.-' '_')"
 
 # ─────────────────────────────────────────────
 # 색상 정의
@@ -57,6 +60,31 @@ fi
 
 OPENCLAW_VERSION=$(openclaw --version 2>/dev/null || echo "unknown")
 log_ok "OpenClaw 발견: $OPENCLAW_VERSION"
+OPENCLAW_CMD=(openclaw --profile "$OPENCLAW_PROFILE")
+log_info "OpenClaw profile: $OPENCLAW_PROFILE"
+log_info "OpenClaw gateway port: $OPENCLAW_GATEWAY_PORT"
+
+ensure_agent_registered() {
+    local agent_id="$1"
+    local workspace_dir="$2"
+    local agent_dir="$3"
+    local model_id="$4"
+
+    if "${OPENCLAW_CMD[@]}" agents list 2>/dev/null | grep -Eq -- "^- ${agent_id}( |$)"; then
+        return 0
+    fi
+
+    log_info "프로파일에 에이전트 등록: ${agent_id}"
+    "${OPENCLAW_CMD[@]}" agents add "$agent_id" \
+        --workspace "$workspace_dir" \
+        --agent-dir "$agent_dir" \
+        --model "$model_id" \
+        --non-interactive >/dev/null 2>&1 || {
+        log_warn "에이전트 등록 실패: ${agent_id}"
+        return 1
+    }
+    return 0
+}
 
 # CLI 도구 확인 (경고만, 실패하지 않음)
 for tool in opencode claude codex gemini; do
@@ -66,6 +94,18 @@ for tool in opencode claude codex gemini; do
         log_warn "CLI 도구 미설치: $tool (일부 에이전트 기능이 제한될 수 있습니다)"
     fi
 done
+
+# 프로파일별 에이전트 부트스트랩
+log_info "프로파일 에이전트 등록 상태 확인 중..."
+ensure_agent_registered "orchestrator" "$PROJECT_DIR/workspaces/orchestrator" "$PROJECT_DIR/agents/orchestrator" "claude-opus-4-6" || true
+ensure_agent_registered "planner" "$PROJECT_DIR/workspaces/planner" "$PROJECT_DIR/agents/planner" "claude-opus-4-6" || true
+ensure_agent_registered "implementer" "$PROJECT_DIR/workspaces/implementer" "$PROJECT_DIR/agents/implementer" "claude-opus-4-6" || true
+ensure_agent_registered "critic" "$PROJECT_DIR/workspaces/critic" "$PROJECT_DIR/agents/critic" "claude-opus-4-6" || true
+ensure_agent_registered "verifier" "$PROJECT_DIR/workspaces/verifier" "$PROJECT_DIR/agents/verifier" "claude-opus-4-6" || true
+
+# 프로파일별 gateway 포트 고정 (프로파일 간 충돌 방지)
+"${OPENCLAW_CMD[@]}" config set gateway.port "$OPENCLAW_GATEWAY_PORT" >/dev/null 2>&1 || true
+"${OPENCLAW_CMD[@]}" config set gateway.bind loopback >/dev/null 2>&1 || true
 
 # ─────────────────────────────────────────────
 # Step 2: 상태 디렉토리 및 파일 초기화
@@ -146,13 +186,7 @@ except:
 
 if [ "$CURRENT_STATUS" = "running" ]; then
     log_warn "시스템이 이미 실행 중입니다."
-    read -p "재시작하시겠습니까? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_info "시작 취소됨."
-        exit 0
-    fi
-    log_info "시스템을 재시작합니다..."
+    log_info "자동으로 재시작 절차를 진행합니다."
 fi
 
 # ─────────────────────────────────────────────
@@ -180,7 +214,13 @@ log_ok "run_state.json 업데이트 완료"
 # ─────────────────────────────────────────────
 log_info "Cron heartbeat 활성화 중..."
 
-CRON_STATE_FILE="$STATE_DIR/cron_state.json"
+CRON_STATE_FILE="$STATE_DIR/cron_state.${PROFILE_SAFE}.json"
+
+# 프로파일 gateway 준비 (크론 등록 전 선행)
+if ! "${OPENCLAW_CMD[@]}" gateway health >/dev/null 2>&1; then
+    "${OPENCLAW_CMD[@]}" gateway install >/dev/null 2>&1 || true
+    "${OPENCLAW_CMD[@]}" gateway start --port "$OPENCLAW_GATEWAY_PORT" >/dev/null 2>&1 || true
+fi
 
 # 기존 cron job이 있으면 먼저 제거
 if [ -f "$CRON_STATE_FILE" ]; then
@@ -191,12 +231,12 @@ with open('$CRON_STATE_FILE') as f:
 " 2>/dev/null || echo "")
     if [ -n "$OLD_CRON_ID" ]; then
         log_info "기존 cron job 제거 중: $OLD_CRON_ID"
-        openclaw cron remove "$OLD_CRON_ID" 2>/dev/null || true
+        "${OPENCLAW_CMD[@]}" cron remove "$OLD_CRON_ID" 2>/dev/null || true
     fi
 fi
 
 # 이름/agent 기준으로 중복 cron 정리
-CRON_LIST=$(openclaw cron list --json 2>/dev/null || echo "[]")
+CRON_LIST=$("${OPENCLAW_CMD[@]}" cron list --json 2>/dev/null || echo "[]")
 CRON_IDS=$(echo "$CRON_LIST" | python3 -c "
 import json, sys
 try:
@@ -213,13 +253,13 @@ if [ -n "$CRON_IDS" ]; then
     while IFS= read -r cron_id; do
         if [ -n "$cron_id" ]; then
             log_info "기존 cron job 정리: $cron_id"
-            openclaw cron remove "$cron_id" 2>/dev/null || openclaw cron disable "$cron_id" 2>/dev/null || true
+            "${OPENCLAW_CMD[@]}" cron remove "$cron_id" 2>/dev/null || "${OPENCLAW_CMD[@]}" cron disable "$cron_id" 2>/dev/null || true
         fi
     done <<< "$CRON_IDS"
 fi
 
 # 새 cron job 등록 및 ID 캡처
-CRON_OUTPUT=$(openclaw cron add \
+CRON_OUTPUT=$("${OPENCLAW_CMD[@]}" cron add \
     --name "orchestration-heartbeat" \
     --every "2m" \
     --agent orchestrator \
@@ -227,6 +267,19 @@ CRON_OUTPUT=$(openclaw cron add \
     --timeout-seconds 120 \
     --no-deliver \
     2>&1) && CRON_ADD_OK=true || CRON_ADD_OK=false
+
+if [ "$CRON_ADD_OK" = false ]; then
+    log_warn "첫 cron 등록 실패. gateway 준비 후 1회 재시도합니다..."
+    "${OPENCLAW_CMD[@]}" gateway restart --port "$OPENCLAW_GATEWAY_PORT" >/dev/null 2>&1 || "${OPENCLAW_CMD[@]}" gateway start --port "$OPENCLAW_GATEWAY_PORT" >/dev/null 2>&1 || true
+    CRON_OUTPUT=$("${OPENCLAW_CMD[@]}" cron add \
+        --name "orchestration-heartbeat" \
+        --every "2m" \
+        --agent orchestrator \
+        --message "Read HEARTBEAT.md and follow the orchestration cycle instructions. Check run_state.json first — if stopped or paused, reply HEARTBEAT_OK." \
+        --timeout-seconds 120 \
+        --no-deliver \
+        2>&1) && CRON_ADD_OK=true || CRON_ADD_OK=false
+fi
 
 if [ "$CRON_ADD_OK" = true ]; then
     log_ok "Cron heartbeat 등록 완료 (매 2분)"
@@ -258,7 +311,7 @@ else:
 
     # ID를 못 찾으면 cron list에서 최신 orchestrator job 찾기
     if [ -z "$CRON_JOB_ID" ]; then
-        CRON_JOB_ID=$(openclaw cron list --json 2>/dev/null | python3 -c "
+        CRON_JOB_ID=$("${OPENCLAW_CMD[@]}" cron list --json 2>/dev/null | python3 -c "
 import json, sys
 try:
     jobs = json.load(sys.stdin)
@@ -301,15 +354,15 @@ fi
 # ─────────────────────────────────────────────
 log_info "OpenClaw gateway 시작 중..."
 
-if openclaw gateway restart 2>/dev/null; then
+if "${OPENCLAW_CMD[@]}" gateway restart --port "$OPENCLAW_GATEWAY_PORT" 2>/dev/null; then
     log_ok "OpenClaw gateway 재시작 완료"
 else
     log_warn "OpenClaw gateway 재시작 실패. 새로 시작을 시도합니다..."
-    if openclaw gateway start 2>/dev/null; then
+    if "${OPENCLAW_CMD[@]}" gateway start --port "$OPENCLAW_GATEWAY_PORT" 2>/dev/null; then
         log_ok "OpenClaw gateway 시작 완료"
     else
         log_error "OpenClaw gateway를 시작할 수 없습니다."
-        log_error "수동으로 'openclaw gateway start'를 실행해 보세요."
+        log_error "수동으로 'openclaw --profile ${OPENCLAW_PROFILE} gateway start'를 실행해 보세요."
         # 상태를 에러로 되돌리지는 않음 — gateway 없이도 일부 기능 가능
         log_warn "gateway 없이 계속합니다."
     fi
@@ -349,6 +402,7 @@ echo -e "  ${CYAN}Status:${NC}      running"
 echo -e "  ${CYAN}PID:${NC}         $$"
 echo -e "  ${CYAN}Started at:${NC}  $(now_iso)"
 echo -e "  ${CYAN}State dir:${NC}   $STATE_DIR"
+echo -e "  ${CYAN}Profile:${NC}     $OPENCLAW_PROFILE"
 echo -e "  ${CYAN}Config:${NC}      $CONFIG_FILE"
 echo -e "${BOLD}${GREEN}════════════════════════════════════════════════════${NC}"
 echo ""
