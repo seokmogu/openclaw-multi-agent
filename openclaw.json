@@ -1,0 +1,149 @@
+{
+  // OpenClaw Multi-Agent Collaborative Problem Solver
+  // 여러 에이전트가 논의하며 문제를 해결하는 시스템
+  // CLI 도구: OpenCode, Claude Code, Codex CLI, Gemini CLI
+
+  agents: {
+    list: [
+      {
+        id: "orchestrator",
+        name: "Orchestrator",
+        default: true,
+        workspace: "./agents/orchestrator",
+        agentDir: "~/.openclaw/agents/orchestrator/agent",
+        model: "anthropic/claude-opus-4-6",
+        identity: { name: "Orchestrator" },
+        groupChat: {
+          mentionPatterns: ["@orchestrator", "@orch"],
+        },
+        tools: {
+          allow: [
+            "exec", "read", "write", "edit",
+            "sessions_list", "sessions_history", "sessions_send", "sessions_spawn",
+            "agents_list", "memory_search",
+          ],
+        },
+      },
+      {
+        id: "planner",
+        name: "Planner",
+        workspace: "./agents/planner",
+        agentDir: "~/.openclaw/agents/planner/agent",
+        model: "anthropic/claude-sonnet-4-6",
+        identity: { name: "Planner" },
+        groupChat: {
+          mentionPatterns: ["@planner", "@plan"],
+        },
+        tools: {
+          allow: ["exec", "read", "write", "sessions_send"],
+          deny: ["sessions_spawn", "sessions_list"],
+        },
+      },
+      {
+        id: "implementer",
+        name: "Implementer",
+        workspace: "./agents/implementer",
+        agentDir: "~/.openclaw/agents/implementer/agent",
+        model: "anthropic/claude-sonnet-4-6",
+        identity: { name: "Implementer" },
+        groupChat: {
+          mentionPatterns: ["@implementer", "@impl"],
+        },
+        tools: {
+          allow: ["exec", "read", "write", "edit", "sessions_send"],
+          deny: ["sessions_spawn", "sessions_list"],
+        },
+      },
+      {
+        id: "critic",
+        name: "Critic",
+        workspace: "./agents/critic",
+        agentDir: "~/.openclaw/agents/critic/agent",
+        model: "anthropic/claude-opus-4-6",
+        identity: { name: "Critic" },
+        groupChat: {
+          mentionPatterns: ["@critic", "@review"],
+        },
+        tools: {
+          allow: ["exec", "read", "sessions_send"],
+          deny: ["write", "edit", "sessions_spawn", "sessions_list"],
+        },
+      },
+      {
+        id: "verifier",
+        name: "Verifier",
+        workspace: "./agents/verifier",
+        agentDir: "~/.openclaw/agents/verifier/agent",
+        model: "anthropic/claude-sonnet-4-6",
+        identity: { name: "Verifier" },
+        groupChat: {
+          mentionPatterns: ["@verifier", "@verify"],
+        },
+        tools: {
+          allow: ["exec", "read", "sessions_send"],
+          deny: ["write", "edit", "sessions_spawn", "sessions_list"],
+        },
+      },
+    ],
+  },
+
+  // 에이전트 간 통신 활성화
+  tools: {
+    agentToAgent: {
+      enabled: true,
+      allow: ["orchestrator", "planner", "implementer", "critic", "verifier"],
+    },
+    sessions: {
+      visibility: "agent",
+    },
+  },
+
+  // 슬랙 채널 바인딩
+  channels: {
+    slack: {
+      accounts: {
+        default: {
+          // SLACK_BOT_TOKEN 환경변수 또는 여기에 직접 설정
+          // botToken: "xoxb-...",
+        },
+      },
+      groupPolicy: "allowlist",
+    },
+  },
+
+  // 라우팅 바인딩 — 슬랙 → Orchestrator로 라우팅
+  bindings: [
+    {
+      agentId: "orchestrator",
+      match: { channel: "slack" },
+    },
+  ],
+
+  // Heartbeat cron — 매 2분마다 Orchestrator 사이클 실행
+  cron: [
+    {
+      id: "orchestration-heartbeat",
+      schedule: "*/2 * * * *",
+      agentId: "orchestrator",
+      task: "Run one orchestration cycle: check run_state.json, pick next task from backlog.json, orchestrate debate if needed, dispatch execution, verify results, report to Slack. If run_state is 'stopped' or 'paused', do nothing.",
+      enabled: false,  // scripts/start.sh 로 활성화
+    },
+  ],
+
+  // 에이전트 기본 설정
+  agents: {
+    defaults: {
+      subagents: {
+        runTimeoutSeconds: 600,  // 서브에이전트 10분 타임아웃
+        archiveAfterMinutes: 120,
+      },
+    },
+  },
+
+  // 세션 설정
+  session: {
+    agentToAgent: {
+      maxPingPongTurns: 5,  // 핑퐁 최대 5턴 (에포크로 우회)
+    },
+  },
+}
