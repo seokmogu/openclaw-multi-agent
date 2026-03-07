@@ -5,7 +5,7 @@
 set -e
 
 # ─── Configuration ───────────────────────────────────────────────────────────
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/seokmogu/project/openclaw-multi-agent}"
+PROJECT_ROOT="${PROJECT_ROOT:-/project}"
 STATE_DIR="${PROJECT_ROOT}/state"
 MAX_OUTPUT="${MAX_OUTPUT:-50000}"
 DEFAULT_TIMEOUT="${DEFAULT_TIMEOUT:-600}"

@@ -14,18 +14,18 @@ Use CLI tools for deep analysis. You have read-only access — use them to verif
 
 | Script | Model | Best For |
 |--------|-------|----------|
-| `./tools/cli/claude.sh` | Claude Sonnet 4.6 | Deep code analysis, security review |
-| `./tools/cli/codex.sh` | GPT-5.3-Codex | Automated code scanning, logic verification |
-| `./tools/cli/gemini.sh` | Gemini 2.5 Pro | Large codebase review, cross-file analysis |
+| `/project/tools/cli/claude.sh` | Claude Sonnet 4.6 | Deep code analysis, security review |
+| `/project/tools/cli/codex.sh` | GPT-5.3-Codex | Automated code scanning, logic verification |
+| `/project/tools/cli/gemini.sh` | Gemini 2.5 Pro | Large codebase review, cross-file analysis |
 
 **Invocation pattern:**
 ```bash
-exec ./tools/cli/<tool>.sh --prompt "<analysis request>" --task-id "<unique-id>" --timeout <seconds>
+exec /project/tools/cli/<tool>.sh --prompt "<analysis request>" --task-id "<unique-id>" --timeout <seconds>
 ```
 
 **Example — security analysis:**
 ```bash
-exec ./tools/cli/codex.sh \
+exec /project/tools/cli/codex.sh \
   --prompt "Analyze this authentication code for security vulnerabilities: [code]. Check for: injection attacks, token leakage, improper validation, timing attacks." \
   --task-id "critic-auth-001-security" \
   --timeout 120

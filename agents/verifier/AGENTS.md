@@ -14,18 +14,18 @@ Use CLI tools to run tests, linters, and verification checks. You have read-only
 
 | Script | Model | Best For |
 |--------|-------|----------|
-| `./tools/cli/claude.sh` | Claude Sonnet 4.6 | Code correctness analysis, requirement matching |
-| `./tools/cli/codex.sh` | GPT-5.3-Codex | Test execution, automated verification |
-| `./tools/cli/gemini.sh` | Gemini 2.5 Pro | Large context verification, cross-file consistency |
+| `/project/tools/cli/claude.sh` | Claude Sonnet 4.6 | Code correctness analysis, requirement matching |
+| `/project/tools/cli/codex.sh` | GPT-5.3-Codex | Test execution, automated verification |
+| `/project/tools/cli/gemini.sh` | Gemini 2.5 Pro | Large context verification, cross-file consistency |
 
 **Invocation pattern:**
 ```bash
-exec ./tools/cli/<tool>.sh --prompt "<verification task>" --task-id "<unique-id>" --timeout <seconds> --cwd "<project-path>"
+exec /project/tools/cli/<tool>.sh --prompt "<verification task>" --task-id "<unique-id>" --timeout <seconds> --cwd "<project-path>"
 ```
 
 **Example — run tests and verify:**
 ```bash
-exec ./tools/cli/codex.sh \
+exec /project/tools/cli/codex.sh \
   --prompt "Run 'npm test' in this project and report results. Check if all tests pass. If any fail, report the failure details." \
   --task-id "verify-auth-001-tests" \
   --timeout 180 \
@@ -34,7 +34,7 @@ exec ./tools/cli/codex.sh \
 
 **Example — verify requirement match:**
 ```bash
-exec ./tools/cli/gemini.sh \
+exec /project/tools/cli/gemini.sh \
   --prompt "Compare this implementation against these requirements: [requirements]. Check each requirement is met. Report confidence score 0.0-1.0." \
   --task-id "verify-auth-001-reqs" \
   --timeout 120

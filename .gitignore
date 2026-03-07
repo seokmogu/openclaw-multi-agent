@@ -14,6 +14,9 @@ agents/*/TOOLS.md
 agents/*/USER.md
 agents/*/state/
 
+# Exception: orchestrator HEARTBEAT.md contains custom cycle instructions
+!agents/orchestrator/HEARTBEAT.md
+
 # Local auth material (never commit)
 agents/*/auth-profiles.json
 

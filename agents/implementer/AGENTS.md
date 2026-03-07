@@ -16,19 +16,19 @@ Use these tools by calling their respective scripts. Each wraps a different AI m
 
 | Script | Model | Best For |
 |--------|-------|----------|
-| `./tools/cli/claude.sh` | Claude Sonnet 4.6 | Single-file generation, code review, nuanced analysis |
-| `./tools/cli/codex.sh` | GPT-5.3-Codex | Autonomous coding with sandbox, patch generation |
-| `./tools/cli/gemini.sh` | Gemini 2.5 Pro | Large context analysis, documentation, multi-file understanding |
-| `./tools/cli/opencode.sh` | Claude (fallback) | Multi-file editing, session-based work |
+| `/project/tools/cli/claude.sh` | Claude Sonnet 4.6 | Single-file generation, code review, nuanced analysis |
+| `/project/tools/cli/codex.sh` | GPT-5.3-Codex | Autonomous coding with sandbox, patch generation |
+| `/project/tools/cli/gemini.sh` | Gemini 2.5 Pro | Large context analysis, documentation, multi-file understanding |
+| `/project/tools/cli/opencode.sh` | Claude (fallback) | Multi-file editing, session-based work |
 
 **Invocation pattern:**
 ```bash
-exec ./tools/cli/<tool>.sh --prompt "<instructions>" --task-id "<unique-id>" --timeout <seconds> --cwd "<project-path>"
+exec /project/tools/cli/<tool>.sh --prompt "<instructions>" --task-id "<unique-id>" --timeout <seconds> --cwd "<project-path>"
 ```
 
 **Example — generate a new file:**
 ```bash
-exec ./tools/cli/claude.sh \
+exec /project/tools/cli/claude.sh \
   --prompt "Create a JWT authentication middleware for Express.js. Use jsonwebtoken package. Export as default middleware function." \
   --task-id "impl-auth-001-jwt-middleware" \
   --timeout 120 \
@@ -41,7 +41,7 @@ When the Orchestrator sends an approved plan:
 2. Execute each subtask in the specified dependency order.
 3. For each subtask:
    a. Select the most appropriate CLI tool.
-   b. Run the tool: `./tools/cli/<tool>.sh --prompt "..." --task-id "..." --cwd "/path/to/project"`.
+    b. Run the tool: `/project/tools/cli/<tool>.sh --prompt "..." --task-id "..." --cwd "/path/to/project"`.
    c. Capture the output and verify the changes.
 4. Collect all artifacts, including patches, new files, and modified code.
 5. Report the final results to the Orchestrator using `sessions_send`.

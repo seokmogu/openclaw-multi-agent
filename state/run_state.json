@@ -1,12 +1,12 @@
 {
   "status": "stopped",
-  "last_updated": "2026-03-07T00:00:00Z",
-  "last_cycle_id": null,
-  "last_completed_step": null,
+  "last_updated": "2026-03-07T23:40:00+09:00",
+  "last_cycle_id": "task-e2e-002",
+  "last_completed_step": "e2e-test-complete",
   "started_by": null,
-  "stopped_by": null,
+  "stopped_by": "user",
   "pause_reason": null,
-  "total_cycles": 0,
+  "total_cycles": 1,
   "config": {
     "max_cycles_without_progress": 5,
     "per_tool_timeout_sec": 600,
