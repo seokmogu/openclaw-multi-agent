@@ -23,19 +23,22 @@ RUN npm install -g \
     @google/gemini-cli \
     && npm cache clean --force
 
-# ── Project layout inside container ───────────────────────────────────────────
-# /app          = OpenClaw runtime (from base image)
-# /project      = Our multi-agent project (mounted volume)
-# /home/node/.openclaw = OpenClaw config + agent state (mounted volume)
+# ── Patch: add gpt-5.4 to model catalog (until OpenClaw releases official support) ──
+COPY scripts/patch-gpt54.py /tmp/patch-gpt54.py
+RUN python3 /tmp/patch-gpt54.py && rm /tmp/patch-gpt54.py
 
+# ── Project layout ────────────────────────────────────────────────────────────
 RUN mkdir -p /project && chown node:node /project
 
-# ── Back to non-root ──────────────────────────────────────────────────────────
+# ── Entrypoint: auto-setup auth symlinks on first run ─────────────────────────
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 USER node
 
-# Environment defaults
 ENV PROJECT_ROOT=/project \
     OPENCLAW_GATEWAY_BIND=0.0.0.0 \
     TERM=xterm-256color
 
+ENTRYPOINT ["entrypoint.sh"]
 WORKDIR /app

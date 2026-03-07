@@ -31,9 +31,15 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
 
-      # LLM provider keys (agents use these via CLI tools)
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # LLM auth: API key 사용 금지. OAuth/로그인 인증만 사용.
+      # - OpenClaw agents: auth-profiles.json (OAuth tokens)
+      # - Claude Code CLI: ~/.claude (로그인 인증)
+      # - Codex CLI: ~/.codex/auth.json (ChatGPT Pro OAuth)
+      # - Gemini CLI: ~/.gemini + GOOGLE_API_KEY
+      #
+      # OPENAI_API_KEY를 명시적으로 비워서 호스트 env 유입 차단
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
 
     volumes:
@@ -41,16 +47,17 @@ services:
       - ./container-config:/home/node/.openclaw
 
       # Project files (agents, state, tools, skills)
-      - ./agents:/project/agents:ro
+      - ./agents:/project/agents
       - ./tools:/project/tools:ro
       - ./skills:/project/skills:ro
       - ./state:/project/state
       - ./workspaces:/project/workspaces
 
       # CLI credential dirs from host (read-only)
+      - ${HOME}/.claude.json:/home/node/.claude.json:ro
       - ${HOME}/.claude:/home/node/.claude:ro
       - ${HOME}/.codex:/home/node/.codex:ro
-      - ${HOME}/.gemini:/home/node/.gemini:ro
+      - ${HOME}/.gemini:/home/node/.gemini:rw
 
     ports:
       - "${HOST_GATEWAY_PORT:-19789}:18789"
