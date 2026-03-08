@@ -151,6 +151,83 @@ truncate_output_stdin() {
     rm -f "$_tmpfile"
 }
 
+retry_with_backoff() {
+    _max_retries=3
+    _base_delay=2
+
+    if [ $# -gt 0 ]; then
+        case "$1" in
+            ''|*[!0-9]*)
+                ;;
+            *)
+                _max_retries="$1"
+                shift
+                ;;
+        esac
+    fi
+
+    if [ $# -gt 0 ]; then
+        case "$1" in
+            ''|*[!0-9]*)
+                ;;
+            *)
+                _base_delay="$1"
+                shift
+                ;;
+        esac
+    fi
+
+    if [ $# -eq 0 ]; then
+        log_error "retry_with_backoff: missing command"
+        return "$EXIT_ERROR"
+    fi
+
+    _attempt=0
+    while :; do
+        set +e
+        "$@"
+        _exit_code=$?
+        set -e
+        if [ "$_exit_code" -eq 0 ]; then
+            return "$EXIT_SUCCESS"
+        fi
+
+        if [ "$_attempt" -ge "$_max_retries" ]; then
+            return "$_exit_code"
+        fi
+
+        _delay="$_base_delay"
+        _i=0
+        while [ "$_i" -lt "$_attempt" ]; do
+            _delay=$((_delay * 2))
+            _i=$((_i + 1))
+        done
+
+        if [ "$_delay" -gt 30 ]; then
+            _delay=30
+        fi
+
+        _jitter=0
+        if [ -n "${RANDOM:-}" ]; then
+            _jitter=$((RANDOM % 2))
+        fi
+
+        _total_delay=$((_delay + _jitter))
+        _retry_num=$((_attempt + 1))
+        log_warn "Command failed (exit ${_exit_code}), retry ${_retry_num}/${_max_retries} in ${_total_delay}s: $*"
+        sleep "$_total_delay"
+
+        _attempt=$((_attempt + 1))
+    done
+}
+
+check_gh_token() {
+    if [ -z "${GH_TOKEN:-}" ]; then
+        log_error "GH_TOKEN environment variable is required"
+        exit "$EXIT_ERROR"
+    fi
+}
+
 # ─── Argument Parsing ───────────────────────────────────────────────────────
 
 # Parse standard CLI wrapper arguments

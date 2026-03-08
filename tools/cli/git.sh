@@ -162,9 +162,22 @@ main() {
 
             if [ ! -d "$BARE_PATH" ]; then
                 log_info "Task ${CLI_TASK_ID}: creating bare cache at ${BARE_PATH}"
-                run_logged git clone --bare "https://github.com/${GITHUB_REPO}.git" "$BARE_PATH"
+                run_logged retry_with_backoff git clone --bare "https://github.com/${GITHUB_REPO}.git" "$BARE_PATH"
             else
-                log_info "Task ${CLI_TASK_ID}: using existing bare cache at ${BARE_PATH}"
+                # Check if bare cache is stale (older than 24 hours = 1440 minutes)
+                # Use POSIX-compatible find with -mmin for portability
+                _cache_file="$BARE_PATH/FETCH_HEAD"
+                if [ ! -f "$_cache_file" ]; then
+                    _cache_file="$BARE_PATH/HEAD"
+                fi
+                
+                if [ -f "$_cache_file" ] && [ -n "$(find "$_cache_file" -mmin +1440 2>/dev/null)" ]; then
+                    # Cache is stale, refresh it
+                    log_info "Task ${CLI_TASK_ID}: refreshing stale bare cache at ${BARE_PATH}"
+                    run_logged retry_with_backoff git -C "$BARE_PATH" fetch --prune origin
+                else
+                    log_info "Task ${CLI_TASK_ID}: using fresh bare cache at ${BARE_PATH}"
+                fi
             fi
 
             if [ -d "$CLONE_PATH" ]; then
@@ -174,7 +187,7 @@ main() {
             fi
 
             run_logged git -C "$CLONE_PATH" remote set-url origin "https://github.com/${GITHUB_REPO}.git"
-            run_logged git -C "$CLONE_PATH" fetch origin
+            run_logged retry_with_backoff git -C "$CLONE_PATH" fetch origin
 
             printf "%s\n" "$CLONE_PATH"
             ;;
@@ -217,7 +230,7 @@ main() {
                     exit $EXIT_ERROR
                     ;;
             esac
-            run_logged git -C "$CLONE_PATH" push -u origin "$BRANCH_NAME"
+            run_logged retry_with_backoff git -C "$CLONE_PATH" push -u origin "$BRANCH_NAME"
             ;;
 
         status)
@@ -233,7 +246,7 @@ main() {
             ;;
 
         rebase)
-            run_logged git -C "$CLONE_PATH" fetch origin "$BASE_BRANCH"
+            run_logged retry_with_backoff git -C "$CLONE_PATH" fetch origin
             if ! run_with_timeout "$CLI_TIMEOUT" git -C "$CLONE_PATH" rebase "origin/${BASE_BRANCH}"; then
                 log_error "Rebase failed (likely conflict), aborting rebase"
                 run_with_timeout "$CLI_TIMEOUT" git -C "$CLONE_PATH" rebase --abort >/dev/null 2>&1 || true

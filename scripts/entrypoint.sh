@@ -32,8 +32,9 @@ fi
 
 if [ -n "$_token" ]; then
   export GH_TOKEN="$_token"
-  # $_token expanded now (double quotes); git credential helper receives literal value
-  git config --global credential.helper "!f() { echo username=x-access-token; echo password=$_token; }; f"
+  printf 'https://x-access-token:%s@github.com\n' "$_token" > "$HOME/.git-credentials"
+  chmod 600 "$HOME/.git-credentials"
+  git config --global credential.helper "store --file=$HOME/.git-credentials"
   echo "[entrypoint] GitHub auth configured"
 else
   echo "[entrypoint] WARNING: GH_TOKEN not set and gh auth token failed. git push/gh commands may fail."

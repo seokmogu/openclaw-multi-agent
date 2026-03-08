@@ -124,40 +124,37 @@ main() {
         exit $EXIT_ERROR
     fi
 
-    if [ -z "${GH_TOKEN:-}" ]; then
-        log_error "GH_TOKEN environment variable is required"
-        exit $EXIT_ERROR
-    fi
+    check_gh_token
 
     case "$OPERATION" in
         pr-create)
             require_value "--branch" "$BRANCH_NAME"
             require_value "--title" "$TITLE"
             require_value "--body" "$BODY"
-            run_logged gh pr create --repo "$GITHUB_REPO" --head "$BRANCH_NAME" --base "$BASE_BRANCH" --title "$TITLE" --body "$BODY" --draft
+            run_logged retry_with_backoff gh pr create --repo "$GITHUB_REPO" --head "$BRANCH_NAME" --base "$BASE_BRANCH" --title "$TITLE" --body "$BODY" --draft
             ;;
 
         pr-list)
             require_value "--branch" "$BRANCH_NAME"
-            run_logged gh pr list --repo "$GITHUB_REPO" --head "$BRANCH_NAME" --json number,title,state,url
+            run_logged retry_with_backoff gh pr list --repo "$GITHUB_REPO" --head "$BRANCH_NAME" --json number,title,state,url
             ;;
 
         pr-status)
-            run_logged gh pr status --repo "$GITHUB_REPO"
+            run_logged retry_with_backoff gh pr status --repo "$GITHUB_REPO"
             ;;
 
         pr-close)
             require_value "--branch" "$BRANCH_NAME"
-            run_logged gh pr close --repo "$GITHUB_REPO" "$BRANCH_NAME"
+            run_logged retry_with_backoff gh pr close --repo "$GITHUB_REPO" "$BRANCH_NAME"
             ;;
 
         pr-view)
             require_value "--branch" "$BRANCH_NAME"
-            run_logged gh pr view --repo "$GITHUB_REPO" "$BRANCH_NAME" --json number,title,state,url,isDraft
+            run_logged retry_with_backoff gh pr view --repo "$GITHUB_REPO" "$BRANCH_NAME" --json number,title,state,url,isDraft
             ;;
 
         repo-view)
-            run_logged gh repo view "$GITHUB_REPO" --json name,defaultBranchRef,description
+            run_logged retry_with_backoff gh repo view "$GITHUB_REPO" --json name,defaultBranchRef,description
             ;;
 
         *)

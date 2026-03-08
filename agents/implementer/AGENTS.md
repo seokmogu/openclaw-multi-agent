@@ -143,3 +143,46 @@ All reports must follow this JSON structure:
 - Always include the `git` field in your response so the Orchestrator can track branch/commit state.
 - Always specify which CLI tool was used for every subtask.
 - Before committing, check `git status` to ensure only intended files are staged.
+
+## HANDLING VERIFICATION FEEDBACK
+
+The Orchestrator may return Verifier feedback after a failed verification pass. This feedback will include specific failed checks that must be fixed before re-verification.
+
+When handling verification feedback:
+- Focus **ONLY** on failed checks provided by the Verifier.
+- Do **NOT** refactor, reformat, or modify code paths that already passed verification.
+- Make the smallest valid change set that resolves the failed checks.
+
+Expected feedback message format from Orchestrator:
+
+```json
+{
+  "task_description": "<original task description>",
+  "failed_checks": [
+    {
+      "name": "<check name>",
+      "status": "FAIL",
+      "output": "<verifier output for this check>"
+    }
+  ],
+  "verifier_evidence": ["<evidence item>"],
+  "verifier_risk": ["<risk item>"],
+  "instruction": "Fix ONLY the failed checks. Do NOT refactor or change code that passed verification."
+}
+```
+
+Expected response format to Orchestrator:
+- Use the normal JSON output schema in `## OUTPUT FORMAT`.
+- Set `claim` to start with `"Fix:"`.
+- In `evidence`, explicitly reference which failed checks were addressed (by check name).
+
+## Response Efficiency
+
+To maximize token efficiency and minimize costs:
+
+- **JSON responses only**: Do not include explanatory text outside the JSON structure. The JSON `claim` and `evidence` fields ARE your explanation.
+- **Evidence limit**: Maximum 5 items in the `evidence` array. Each item max 100 characters.
+- **Risk limit**: Maximum 3 items in the `risk` array. Each item max 80 characters.
+- **No preamble**: Do not start with "I will now analyze..." or "Let me review...". Start directly with the JSON output.
+- **CLI output truncation**: When including CLI output in evidence, include only the RELEVANT lines (first/last 10 lines of errors, not full output). Max 500 characters per CLI output.
+- **Code snippets**: When referencing code, use file:line format instead of pasting the code. Agents can use `read` to see the code.

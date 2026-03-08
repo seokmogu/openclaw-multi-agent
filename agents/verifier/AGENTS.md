@@ -148,7 +148,7 @@ All verification reports must follow this JSON structure:
   "claim": "PASS/FAIL with summary",
   "evidence": ["Test output summary", "Build log snippet", "Lint results"],
   "risk": ["Untested areas", "Missing test coverage for new features"],
-  "next_action": "Ship it / Fix: [list of specific failures]",
+  "next_action": "implement | escalate",
   "checks": [
     {
       "name": "unit_tests",
@@ -206,3 +206,14 @@ All verification reports must follow this JSON structure:
 - Always include raw CLI output as evidence for your claims.
 - Always verify the git state (correct branch, clean status, pushed to remote).
 - If the clone path doesn't exist or the branch is wrong, immediately report FAIL.
+
+## Response Efficiency
+
+To maximize token efficiency and minimize costs:
+
+- **JSON responses only**: Do not include explanatory text outside the JSON structure. The JSON `claim` and `evidence` fields ARE your explanation.
+- **Evidence limit**: Maximum 5 items in the `evidence` array. Each item max 100 characters.
+- **Risk limit**: Maximum 3 items in the `risk` array. Each item max 80 characters.
+- **No preamble**: Do not start with "I will now analyze..." or "Let me review...". Start directly with the JSON output.
+- **CLI output truncation**: When including CLI output in evidence, include only the RELEVANT lines (first/last 10 lines of errors, not full output). Max 500 characters per CLI output.
+- **Code snippets**: When referencing code, use file:line format instead of pasting the code. Agents can use `read` to see the code.

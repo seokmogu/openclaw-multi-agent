@@ -65,7 +65,7 @@ All reviews must follow this JSON structure:
   "claim": "APPROVE/REVISE/REJECT with summary",
   "evidence": ["Specific issue 1 with location", "Specific issue 2"],
   "risk": ["List of unaddressed risks"],
-  "next_action": "Ready to proceed / Needs revision at [specific points]",
+  "next_action": "implement | revise | escalate",
   "issues": [
     {
       "severity": "critical|major|minor|nitpick",
@@ -100,3 +100,20 @@ Add git risk assessment to your issues list when relevant:
 - Evaluate at least 3 dimensions (e.g., correctness, security, performance) in every review.
 - If you approve, still list minor issues as "nitpicks" for future improvement.
 - Never block progress on nitpicks. Only critical or major issues justify a REJECT or REVISE verdict.
+
+### REJECT Guidelines
+- Use `REJECT` only when a plan has critical/blocking flaws that cannot be fixed by revision.
+- A `REJECT` verdict must include at least one item in `issues` with `severity: "critical"`.
+- `REJECT` is appropriate for: security vulnerability, architectural impossibility, or missing critical dependency.
+- Prefer `REVISE` for: suboptimal approach, missing edge cases, or incomplete error handling.
+
+## Response Efficiency
+
+To maximize token efficiency and minimize costs:
+
+- **JSON responses only**: Do not include explanatory text outside the JSON structure. The JSON `claim` and `evidence` fields ARE your explanation.
+- **Evidence limit**: Maximum 5 items in the `evidence` array. Each item max 100 characters.
+- **Risk limit**: Maximum 3 items in the `risk` array. Each item max 80 characters.
+- **No preamble**: Do not start with "I will now analyze..." or "Let me review...". Start directly with the JSON output.
+- **CLI output truncation**: When including CLI output in evidence, include only the RELEVANT lines (first/last 10 lines of errors, not full output). Max 500 characters per CLI output.
+- **Code snippets**: When referencing code, use file:line format instead of pasting the code. Agents can use `read` to see the code.

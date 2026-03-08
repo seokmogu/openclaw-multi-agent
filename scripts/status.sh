@@ -58,6 +58,151 @@ echo -e "${BOLD}${CYAN}║       OpenClaw Multi-Agent System — Status Dashboar
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
+echo -e "${BOLD}${YELLOW}┌─ Pre-Flight Health Checks ──────────────────────────────┐${NC}"
+
+export STATE_DIR PROJECT_DIR
+python3 << 'PYEOF' 2>/dev/null || true
+import json
+import os
+import shutil
+import subprocess
+
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+CYAN = "\033[0;36m"
+DIM = "\033[2m"
+NC = "\033[0m"
+
+state_dir = os.environ.get("STATE_DIR", "")
+project_dir = os.environ.get("PROJECT_DIR", "")
+
+def ok(text):
+    return f"{GREEN}✓{NC} {text}"
+
+def fail(text):
+    return f"{RED}✗{NC} {text}"
+
+def warn(text):
+    return f"{YELLOW}!{NC} {text}"
+
+print(f"  {CYAN}Auth:{NC}")
+
+gh_token = os.environ.get("GH_TOKEN", "")
+if gh_token:
+    print(f"    {ok('GH_TOKEN set')}")
+else:
+    print(f"    {fail('GH_TOKEN missing')}")
+
+in_container = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+if in_container:
+    gh_exists = shutil.which("gh") is not None
+    if not gh_exists:
+        print(f"    {fail('gh auth status failed (gh not installed)')}")
+    else:
+        auth_ok = subprocess.run(
+            ["gh", "auth", "status"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+        if auth_ok:
+            print(f"    {ok('gh auth status OK (container)')}")
+        else:
+            print(f"    {fail('gh auth status failed (container)')}")
+
+print(f"  {CYAN}Disk:{NC}")
+workspace_path = "/project/workspaces"
+if os.path.isdir(workspace_path):
+    usage = shutil.disk_usage(workspace_path)
+    free_mb = usage.free // (1024 * 1024)
+    if free_mb < 500:
+        print(f"    {warn(f'{workspace_path} free {free_mb} MB (<500 MB)')}")
+    else:
+        print(f"    {ok(f'{workspace_path} free {free_mb} MB')}")
+else:
+    print(f"    {fail(f'{workspace_path} not found')}")
+
+print(f"  {CYAN}State files:{NC}")
+required_files = [
+    "run_state.json",
+    "backlog.json",
+    "debate_config.json",
+    "git_state.json",
+]
+
+for filename in required_files:
+    path = os.path.join(state_dir, filename)
+    if os.path.isfile(path):
+        print(f"    {ok(filename)}")
+    else:
+        print(f"    {fail(filename)}")
+
+print(f"  {CYAN}Cron:{NC}")
+cron_state_file = os.path.join(state_dir, "cron_state.json")
+cron_job_id = None
+
+if os.path.isfile(cron_state_file):
+    try:
+        with open(cron_state_file) as f:
+            cron_data = json.load(f)
+
+        for key in ("cron_job_id", "job_id", "id"):
+            value = cron_data.get(key) if isinstance(cron_data, dict) else None
+            if value:
+                cron_job_id = str(value)
+                break
+    except Exception:
+        cron_job_id = None
+
+if cron_job_id:
+    print(f"    {ok(f'job id: {cron_job_id}')}")
+else:
+    print(f"    {warn('not configured')}")
+
+print(f"  {CYAN}Git leases:{NC}")
+git_state_file = os.path.join(state_dir, "git_state.json")
+active_leases = 0
+
+def count_active_from_list(items):
+    count = 0
+    for item in items:
+        if isinstance(item, dict):
+            if item.get("active") is True:
+                count += 1
+                continue
+            status = str(item.get("status", "")).lower()
+            if status in {"active", "leased", "locked"}:
+                count += 1
+                continue
+            if "active" not in item and "status" not in item:
+                count += 1
+        else:
+            count += 1
+    return count
+
+if os.path.isfile(git_state_file):
+    try:
+        with open(git_state_file) as f:
+            git_state = json.load(f)
+
+        if isinstance(git_state, dict) and isinstance(git_state.get("active_leases"), int):
+            active_leases = git_state.get("active_leases", 0)
+        elif isinstance(git_state, dict) and isinstance(git_state.get("leases"), list):
+            active_leases = count_active_from_list(git_state.get("leases", []))
+        elif isinstance(git_state, dict) and isinstance(git_state.get("active_leases"), list):
+            active_leases = count_active_from_list(git_state.get("active_leases", []))
+        elif isinstance(git_state, list):
+            active_leases = count_active_from_list(git_state)
+    except Exception:
+        active_leases = 0
+
+print(f"    {ok(f'active leases: {active_leases}')}")
+PYEOF
+
+echo -e "${YELLOW}└─────────────────────────────────────────────────────────┘${NC}"
+echo ""
+
 # ─────────────────────────────────────────────
 # Section 1: 시스템 상태
 # ─────────────────────────────────────────────

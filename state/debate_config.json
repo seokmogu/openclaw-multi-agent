@@ -6,6 +6,7 @@
   "tiebreak_strategy": "lowest_risk",
   "max_cycles_without_progress": 5,
   "max_implementation_retries": 2,
+  "max_debate_wall_time_sec": 600,
   "per_tool_timeout_sec": 600,
   "tools": {
     "planner": {

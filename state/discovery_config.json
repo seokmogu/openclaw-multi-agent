@@ -1,0 +1,32 @@
+{
+  "enabled": false,
+  "sources": {
+    "goals_md": {
+      "enabled": true,
+      "description": "Generate tasks from goals.md objectives"
+    },
+    "critic_patterns": {
+      "enabled": true,
+      "description": "Generate tasks from recurring Critic feedback patterns"
+    },
+    "verifier_failures": {
+      "enabled": true,
+      "description": "Generate hardening tasks from verification failure patterns"
+    },
+    "code_health": {
+      "enabled": false,
+      "description": "Scan target repos for code health issues (lint, test coverage, complexity)"
+    }
+  },
+  "safety": {
+    "max_auto_priority": 0.9,
+    "max_consecutive_failures_before_disable": 5,
+    "no_self_referential_tasks": true,
+    "duplicate_detection": true,
+    "require_user_approval_above_priority": 0.8
+  },
+  "schedule": {
+    "discovery_interval_cycles": 5,
+    "max_auto_tasks_per_discovery": 3
+  }
+}
