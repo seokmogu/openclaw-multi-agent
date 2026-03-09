@@ -213,6 +213,7 @@ All Slack command responses are in Korean. Commands are processed in HEARTBEAT.m
 | `/ocma backlog` | 대기열 보기 (상태별 그룹, 최대 10개) | 정보 |
 | `/ocma add <설명>` | 작업 수동 추가 (priority: medium, score: 0.8) | 관리 |
 | `/ocma cancel <task-id>` | 작업 취소 (pending/blocked만 가능) | 관리 |
+| `/ocma merge [PR#]` | PR 머지 (번호 없으면 대기중인 PR 전체) | 관리 |
 | `/ocma logs [N]` | 최근 N개 사이클 결과 (기본: 5) | 정보 |
 | `/ocma health` | 시스템 상태 점검 (도구 버전, 디스크, 재시작 횟수) | 진단 |
 | `/ocma config [key] [value]` | 설정 조회/변경 (discovery_enabled, discovery_interval, max_epochs, convergence_threshold) | 관리 |
@@ -324,6 +325,7 @@ Each task in `/project/state/backlog.json` contains the following fields:
 | `clone_path` | string \| null | No | Local clone path (e.g., "/project/workspaces/.clones/<task-id>/<repo>") |
 | `pr_number` | number \| null | No | GitHub PR number after creation |
 | `pr_url` | string \| null | No | GitHub PR URL after creation |
+| `pr_status` | string \| null | No | PR lifecycle: `"pending_approval"` (waiting for user), `"approved"`, `"merged"`, `"closed"` |
 | `fast_path` | boolean | No | Skip debate phase if true (default: false) |
 | `generated_by` | string \| null | **(NEW)** | Source of task creation: `"user"` (default), `"discovery:goals_md"`, `"discovery:critic_patterns"`, `"discovery:verifier_failures"`, `"discovery:code_health"` |
 | `source_task_id` | string \| null | **(NEW)** | If generated from another task's learning, references that task ID |
