@@ -107,7 +107,7 @@
           // botToken: "xoxb-...",
         },
       },
-      groupPolicy: "allowlist",
+      groupPolicy: "open",
     },
   },
 
