@@ -1,6 +1,6 @@
 # Orchestration Heartbeat Cycle
 
-You are triggered every 2 minutes by cron. Follow these steps exactly, in order.
+You are triggered by system events (self-trigger on cycle completion) or by the watchdog cron (every 30 minutes, timeoutSeconds=1800). Follow these steps exactly.
 
 ## Step 0: Safety Pre-Check
 
@@ -19,14 +19,17 @@ Run this quick pre-flight before Step 1:
      - Append the same event to `/project/state/decision_log.md`.
 
 2. **Self-referential task check**
-   - Inspect the next pending task (`status == "pending"`, first by backlog order).
-   - Treat as self-referential if `target_repo == "openclaw-multi-agent"` OR `title`/`description` references OCMA itself (keywords: `"openclaw-multi-agent"`, `"ocma"`, `"orchestrator"`, `"heartbeat"`, `"agent"`).
-   - For each self-referential match:
-     - Set `status` to `"cancelled"`.
-     - Set `error` to `"Safety: self-referential task blocked"`.
-     - Post to Slack: `"SAFETY: Blocked self-referential task: {title}"`.
-     - Continue scanning for the next pending task.
-   - Write updated `/project/state/backlog.json` if any task was cancelled.
+   - Read `discovery_config.safety.no_self_referential_tasks`.
+   - If `no_self_referential_tasks == true` (blocking enabled):
+     - Inspect the next pending task (`status == "pending"`, first by backlog order).
+     - Treat as self-referential if `target_repo == "openclaw-multi-agent"` OR `title`/`description` references OCMA itself (keywords: `"openclaw-multi-agent"`, `"ocma"`, `"orchestrator"`, `"heartbeat"`).
+     - For each self-referential match:
+       - Set `status` to `"cancelled"`.
+       - Set `error` to `"Safety: self-referential task blocked"`.
+       - Post to Slack: `"SAFETY: Blocked self-referential task: {title}"`.
+       - Continue scanning for the next pending task.
+     - Write updated `/project/state/backlog.json` if any task was cancelled.
+   - If `no_self_referential_tasks == false` (blocking disabled): skip this check entirely. Self-referential tasks are allowed.
 
 3. **Priority ceiling check**
    - On the next pending task selected after safety filtering: if `generated_by` starts with `"discovery:"` AND `priority_score > max_auto_priority`:
@@ -34,11 +37,28 @@ Run this quick pre-flight before Step 1:
      - Append to `/project/state/decision_log.md`: `"Priority capped from {original} to {max}"`.
      - Write updated `/project/state/backlog.json`.
 
+## Step 0.5: Cycle Lock Check
+
+Read `/project/state/run_state.json`.
+
+1. Check `cycle_lock`:
+   - If `cycle_lock` exists and `cycle_lock.locked_at` is less than 1800 seconds ago:
+     - This means another cycle is already running. Exit immediately — do nothing.
+   - If `cycle_lock` exists but is older than 1800 seconds:
+     - The previous cycle is stale. Clear the lock and proceed (will be re-locked in the next step).
+   - If `cycle_lock` is null or absent -> proceed.
+
+2. Acquire cycle lock:
+   - Set `cycle_lock` to `{ "locked_at": "<current ISO 8601>", "trigger": "<cron|system-event|manual>" }`
+   - Write updated `/project/state/run_state.json`.
+
+**IMPORTANT**: Every path that says "STOP" must first clear the `cycle_lock` in `run_state.json` (set to `null` and write the file) before stopping. This ensures the watchdog cron can restart the cycle.
+
 ## Step 1: Check Run State
 
 Read `/project/state/run_state.json`.
 
-- If `status` is `"stopped"` or `"paused"` → **STOP immediately**. Do nothing else.
+- If `status` is `"stopped"` or `"paused"` → clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP immediately**. Do nothing else.
 - If `status` is `"running"` → proceed to Step 2.
 - Write `last_heartbeat_at: <current ISO 8601 timestamp>` to `/project/state/run_state.json`.
 
@@ -195,7 +215,7 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
 1. Read `/project/state/discovery_config.json`.
 2. If `enabled == false`:
    - Post to Slack: `"No pending tasks. Discovery disabled. Idle."`
-   - **STOP**
+   - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
 3. If `enabled == true`:
    - Read `/project/state/run_state.json` and get `total_cycles`.
    - Read `schedule.discovery_interval_cycles` and `schedule.max_auto_tasks_per_discovery`.
@@ -203,7 +223,7 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
    - If it is not a discovery cycle:
      - Compute `cycles_until_discovery = schedule.discovery_interval_cycles - (total_cycles % schedule.discovery_interval_cycles)`.
      - Post to Slack: `"No pending tasks. Next discovery in {cycles_until_discovery} cycles. Idle."`
-     - **STOP**
+     - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
 
 4. Initialize discovery state:
    - `generated_tasks = []`
@@ -287,7 +307,7 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
    - Append accepted generated tasks to `/project/state/backlog.json`.
    - Write updated backlog file.
    - Post to Slack: `"Discovery: generated {N} new task(s) from {sources}"`.
-   - If `N == 0`: post `"No pending tasks after discovery. Idle."` and **STOP**.
+   - If `N == 0`: post `"No pending tasks after discovery. Idle."`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
 
 8. Pick discovered task for execution:
    - Select the generated task with highest `priority_score` (tie-break by generation order) and store as `selected_task`.
@@ -407,7 +427,7 @@ Parse Planner's revised response as JSON.
 
 Check convergence:
 - **Converged** if: Planner's revised `next_action == "implement"` AND Critic's verdict is not `"REJECT"` AND all Critic's major issues are addressed in the revision.
-- **Escalate** if: any agent's `next_action == "escalate"` → post to Slack requesting user input, set task `status` to `"blocked"`, **STOP**.
+- **Escalate** if: any agent's `next_action == "escalate"` → post to Slack requesting user input, set task `status` to `"blocked"`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), **STOP**.
 
 If **converged** → write epoch summary to `/project/state/decision_log.md`, proceed to Step 6.
 
@@ -418,7 +438,7 @@ If Critic's `verdict == "REJECT"`:
   - Set `block_reason` to Critic's `claim`
   - Write REJECT block decision to `/project/state/decision_log.md`
   - Post to Slack: `"BLOCKED | Task: [task.title] | Critic REJECT: [claim summary]"`
-  - **STOP**
+  - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
 - If no critical issue exists: treat this as REVISE (downgrade REJECT to REVISE) and continue to next epoch.
 
 If **not converged**:
@@ -443,7 +463,7 @@ If **not converged**:
 3. Set `previous_context` = epoch summary text. Increment `epoch`. Continue loop.
 
 If **epoch > max_epochs** and still not converged:
-- If Critic's final-epoch `verdict == "REJECT"` and Critic `issues` include at least one `severity == "critical"` issue: do NOT tiebreak. Set task `status` to `"blocked"`, set `block_reason` to Critic's `claim`, write to `/project/state/decision_log.md`, post to Slack `"BLOCKED | Task: [task.title] | Critic REJECT: [claim summary]"`, and **STOP**.
+- If Critic's final-epoch `verdict == "REJECT"` and Critic `issues` include at least one `severity == "critical"` issue: do NOT tiebreak. Set task `status` to `"blocked"`, set `block_reason` to Critic's `claim`, write to `/project/state/decision_log.md`, post to Slack `"BLOCKED | Task: [task.title] | Critic REJECT: [claim summary]"`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
 - If Critic's final-epoch verdict is `"APPROVE"` or `"REVISE"`, or `"REJECT"` without any critical issue → force tiebreak (same as stale debate). Proceed to Step 6.
 
 #### 5e. RECORD DEBATE LEARNING (after convergence or tiebreak)
@@ -612,7 +632,8 @@ Run after **EVERY** verification result (both PASS and FAIL), before Step 8.
 3. Set `last_cycle_id` to the task ID
 4. Set `last_completed_step` to the final phase reached (e.g., "verify-pass", "verify-fail", "debate-escalated")
 5. Set `last_updated` to current ISO 8601 timestamp
-6. Write updated run_state back
+6. Clear `cycle_lock`: set to `null` in run_state.json
+7. Write updated run_state back
 
 Post final status to Slack:
 ```
@@ -701,6 +722,29 @@ If `total_cycles % 10 == 0`:
 4. Count deleted clones. If count > 0:
    - Append to `/project/state/decision_log.md`: `"Periodic sweep (cycle {total_cycles}): removed {count} orphaned clone(s)"`
    - Post to Slack: `"Sweep: removed {count} orphaned clone(s)"`
+
+## Step 9.7: Self-Trigger Next Cycle
+
+Determine if the next cycle should be triggered immediately:
+
+1. Read `/project/state/backlog.json`.
+2. Check if any task has `status == "pending"`.
+3. If pending tasks exist:
+   - Trigger immediate next cycle:
+     ```
+     exec(command="openclaw system event --mode now --text 'cycle-complete: next pending task available'", timeout=15)
+     ```
+   - Log: `"Self-trigger: next cycle queued (pending tasks available)"`
+4. If NO pending tasks exist:
+   - Check if discovery is enabled and due (same logic as Step 3 discovery check).
+   - If discovery is due:
+     ```
+     exec(command="openclaw system event --mode now --text 'cycle-complete: discovery due'", timeout=15)
+     ```
+     - Log: `"Self-trigger: discovery cycle queued"`
+   - If discovery is NOT due:
+     - Do NOT self-trigger. Let the watchdog cron handle the next wake.
+     - Log: `"Idle: no pending tasks, no discovery due. Waiting for watchdog cron."`
 
 ## Error Handling
 

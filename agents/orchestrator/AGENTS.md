@@ -46,13 +46,15 @@ exec(command="/project/tools/cli/<tool>.sh --prompt \"<full prompt with role + t
 
 **Read `/project/agents/orchestrator/HEARTBEAT.md` for the complete step-by-step cycle.** Summary:
 
-1. Check `/project/state/run_state.json` — stop if `stopped` or `paused`
-2. Load `/project/state/debate_config.json` for parameters
-3. Pick next `pending` task from `/project/state/backlog.json`
+Trigger model: cycles are event-driven; each completed cycle self-triggers the next via `openclaw system event --mode now ...`. A watchdog cron runs every 30 minutes as fallback.
+
+1. Run safety pre-check, then read `/project/state/run_state.json` and apply cycle lock semantics
+2. Check run status (`running` only), then load `/project/state/debate_config.json`
+3. Pick next `pending` task from `/project/state/backlog.json` (or run discovery fallback)
 4. Run debate: propose(Planner) → challenge(Critic) → revise(Planner) → decide
 5. If converged: implement(Implementer) → verify(Verifier)
-6. Update all state files
-7. Check for auto-pause conditions
+6. Update state, clear cycle lock, and report
+7. Run auto-pause/cleanup, then self-trigger next cycle only when pending tasks exist or discovery is due
 
 ## Full Debate Protocol
 
@@ -179,7 +181,7 @@ After each cycle:
 ## Safety Guards
 
 - Auto-disable discovery when consecutive failed tasks in `/project/state/backlog.json` reach `discovery_config.json` `safety.max_consecutive_failures_before_disable` (default: 5).
-- Block self-referential tasks before execution: cancel pending tasks targeting `openclaw-multi-agent` or referencing OCMA/orchestrator internals in title/description.
+- Block self-referential tasks before execution only when `discovery_config.safety.no_self_referential_tasks == true`: cancel pending tasks targeting `openclaw-multi-agent`. When `false`, self-referential tasks are allowed (for self-improvement).
 - Apply priority ceiling to auto-generated work: if `generated_by` starts with `discovery:` and `priority_score` exceeds `safety.max_auto_priority`, cap to the configured maximum.
 - Enforce duplicate detection during discovery (checked in heartbeat Step 3) when `safety.duplicate_detection` is enabled.
 - Require explicit user approval when computed priority exceeds `safety.require_user_approval_above_priority`.
@@ -234,7 +236,7 @@ Additional fields per role:
 
 | File | Read/Write | Purpose |
 |------|-----------|---------|
-| `/project/state/run_state.json` | R/W | Loop control (running/paused/stopped) |
+| `/project/state/run_state.json` | R/W | Loop control, cycle metadata, and `cycle_lock` ownership |
 | `/project/state/debate_config.json` | R | Debate parameters and tool configs |
 | `/project/state/goal.md` | R/W | Current objective |
 | `/project/state/backlog.json` | R/W | Task queue |
@@ -246,6 +248,34 @@ Additional fields per role:
 | `/project/state/metrics.json` | R/W | Per-cycle performance metrics (max 200 entries, FIFO rotation) |
 | `/project/state/goals.md` | R | High-level evolution objectives (user-maintained) |
 | `/project/state/discovery_config.json` | R | Task discovery engine configuration (enabled: false by default) |
+
+### run_state.json Core Schema
+
+```json
+{
+  "status": "running",
+  "last_updated": "...",
+  "last_heartbeat_at": "...",
+  "last_cycle_id": "...",
+  "last_completed_step": "...",
+  "started_by": "user",
+  "stopped_by": null,
+  "pause_reason": null,
+  "total_cycles": 1,
+  "cycle_lock": null,
+  "config": {
+    "max_cycles_without_progress": 5,
+    "per_tool_timeout_sec": 600,
+    "max_retries": 2,
+    "max_debate_epochs": 3
+  }
+}
+```
+
+`cycle_lock` semantics:
+- `null`: no active cycle lock
+- object: `{ "locked_at": "<ISO8601>", "trigger": "<cron|system-event|manual>" }`
+- lock older than 1800 seconds is stale and must be cleared before proceeding
 
 ### Backlog Task Schema
 
