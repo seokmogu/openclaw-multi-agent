@@ -1,13 +1,14 @@
 {
   "status": "running",
   "last_updated": "2026-03-08T23:15:00Z",
-  "last_heartbeat_at": "2026-03-09T00:30:00Z",
+  "last_heartbeat_at": "2026-03-09T01:55:00Z",
   "last_cycle_id": "task-ocma-002",
   "last_completed_step": "verify-pass",
   "started_by": "user",
   "stopped_by": null,
   "pause_reason": null,
   "total_cycles": 3,
+  "idle_cycles": 0,
   "config": {
     "max_cycles_without_progress": 5,
     "per_tool_timeout_sec": 600,

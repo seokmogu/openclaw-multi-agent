@@ -2,6 +2,156 @@
 
 You are triggered by system events (self-trigger on cycle completion) or by the watchdog cron (every 30 minutes, timeoutSeconds=1800). Follow these steps exactly.
 
+## Slash Command Processing (Priority Check)
+
+Before running the heartbeat cycle, check if you were triggered by a user message from Slack (not a cron or system event). If the incoming message matches a slash command pattern, handle it here and STOP without running the heartbeat cycle.
+
+### Detection
+
+Examine the incoming message content. If the first word (case-insensitive) matches one of the commands below, process it. If the message comes from a cron trigger or system event (e.g., contains "cycle-complete:", "heartbeat", or is a system wake), skip this section and proceed to Step 0.
+
+### Command: `help`
+
+Reply via Slack:
+```
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"📋 OCMA 명령어 목록:\n• /ocma help — 이 도움말 표시\n• /ocma status — 현재 상태 요약\n• /ocma pause — 자율 사이클 일시정지\n• /ocma resume — 정지 해제 및 즉시 실행\n• /ocma run — 수동 사이클 트리거\n• /ocma backlog — 대기열 보기\n• /ocma add [설명] — 작업 추가\n• /ocma cancel [task-id] — 작업 취소\n• /ocma logs [N] — 최근 사이클 결과\n• /ocma health — 시스템 상태 점검\n• /ocma config [key] [value] — 설정 조회/변경\n• /ocma restart — 컨테이너 재시작\"", timeout=15)
+```
+**STOP** — do not proceed to Step 0.
+
+### Command: `status`
+
+1. Read `/project/state/run_state.json`.
+2. Read `/project/state/backlog.json`.
+3. Count tasks by status: pending, in_progress, completed, failed.
+4. Find the currently in_progress task (if any).
+5. Reply via Slack:
+```
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"{status_emoji} 상태: {status} | 사이클: #{total_cycles} | 현재 작업: {current_task_or_없음} | 대기: {pending}개 | 완료: {completed}개 | 실패: {failed}개 | 마지막 heartbeat: {last_heartbeat_at}\"", timeout=15)
+```
+Where `status_emoji`: 🟢 = running, ⏸️ = paused, 🔴 = stopped.
+
+**STOP**.
+
+### Command: `pause`
+
+1. Read `/project/state/run_state.json`.
+2. Set `status` to `"paused"`, `pause_reason` to `"Slack 명령어로 정지"`.
+3. Write updated `/project/state/run_state.json`.
+4. Reply: `"⏸️ 정지됨. 진행중인 사이클은 완료 후 정지합니다. 재개: /ocma resume"`
+
+**STOP**.
+
+### Command: `resume`
+
+1. Read `/project/state/run_state.json`.
+2. Set `status` to `"running"`, `pause_reason` to `null`.
+3. Write updated `/project/state/run_state.json`.
+4. Reply: `"▶️ 재개됨. 다음 사이클 즉시 시작합니다."`
+5. Trigger next cycle:
+```
+exec(command="openclaw system event --mode now --text 'manual-resume: triggered via Slack'", timeout=15)
+```
+
+**STOP**.
+
+### Command: `run`
+
+1. Reply: `"🔄 사이클 수동 트리거됨. 결과는 이 채널에 보고합니다."`
+2. Trigger immediate cycle:
+```
+exec(command="openclaw system event --mode now --text 'manual-run: triggered via Slack'", timeout=15)
+```
+
+**STOP**.
+
+### Command: `backlog`
+
+1. Read `/project/state/backlog.json`.
+2. List all tasks grouped by status with format: `{status_emoji} {id} — {title} (우선순위: {priority})`
+   - ⏳ pending, 🔄 in_progress, ✅ completed, ❌ failed, 🚫 cancelled, ⛔ blocked
+3. Show max 10 tasks. If more exist, append `"...외 {N}개"`
+4. Reply with formatted backlog.
+
+**STOP**.
+
+### Command: `add <description>`
+
+1. Extract the description text after `add `.
+2. Generate task ID: `"manual-{unix_timestamp}"`.
+3. Create new task:
+   - `id`: generated ID, `title`: first 100 chars of description, `description`: full text
+   - `status`: `"pending"`, `priority`: `"medium"`, `priority_score`: `0.8`
+   - `generated_by`: `"user:slack"`, `created_at`/`updated_at`: current ISO timestamp
+   - All other optional fields: null/default
+4. Read `/project/state/backlog.json`, append task, write back.
+5. Reply: `"✅ 작업 추가됨: \"{title}\" (ID: {id})"`
+
+**STOP**.
+
+### Command: `cancel <task-id>`
+
+1. Extract task ID after `cancel `.
+2. Read `/project/state/backlog.json`.
+3. Find task by ID:
+   - Not found: reply `"❌ 작업을 찾을 수 없습니다: {task-id}"`
+   - Found, status is `pending` or `blocked`: set `status` to `"cancelled"`, write. Reply: `"🗑️ 작업 취소됨: {title} ({task-id})"`
+   - Found, status is `completed`/`failed`/`cancelled`: reply `"❌ 이미 종료된 작업입니다: {task-id} (상태: {status})"`
+   - Found, status is `in_progress`: reply `"⚠️ 진행중인 작업은 취소할 수 없습니다. 완료될 때까지 기다려주세요."`
+
+**STOP**.
+
+### Command: `logs [N]`
+
+1. Extract N (default: 5).
+2. Read `/project/state/metrics.json`.
+3. Take the last N entries from `entries`.
+4. Format each: `"#{cycle_id} | {verdict} | {debate_epochs}에포크 | 신뢰도: {confidence} | 소요: {total_cycle_time_sec}초"`
+5. Reply with formatted log list.
+
+**STOP**.
+
+### Command: `health`
+
+1. Check components:
+   - Read `/project/state/run_state.json` → status, total_cycles
+   - Read `/project/state/restart_state.json` → restart_count, tool_versions
+   - `exec(command="df -h /project | tail -1", timeout=5)` → disk usage
+   - Read `/project/state/backlog.json` → count by status
+2. Reply: `"🏥 시스템 상태:\n• 상태: {status}\n• 사이클: #{total_cycles}\n• 재시작: {restart_count}회\n• 도구: claude-code={ver}, codex={ver}, openclaw={ver}\n• 디스크: {usage}\n• 대기 작업: {pending}개 | 완료: {completed}개 | 실패: {failed}개"`
+
+**STOP**.
+
+### Command: `config [key] [value]`
+
+1. If only `config` (no arguments): read `/project/state/debate_config.json` and `/project/state/discovery_config.json`, reply with summary of all settings.
+2. If `config <key>` (view): show current value.
+3. If `config <key> <value>` (set): update value in appropriate config file.
+   - Allowed keys and their config files:
+     - `discovery_enabled` → `discovery_config.json` field `enabled` (boolean)
+     - `discovery_interval` → `discovery_config.json` field `schedule.discovery_interval_cycles` (number)
+     - `max_epochs` → `debate_config.json` field `max_epochs` (number, range 2-5)
+     - `convergence_threshold` → `debate_config.json` field `convergence_threshold` (number, range 0.5-0.9)
+   - Reply: `"⚙️ 설정 변경: {key} = {old} → {new}"`
+4. Unknown key: reply `"❌ 알 수 없는 설정: {key}. 사용 가능: discovery_enabled, discovery_interval, max_epochs, convergence_threshold"`
+
+**STOP**.
+
+### Command: `restart`
+
+1. Reply: `"🔄 재시작을 시작합니다. 약 30초 후 복구됩니다."`
+2. Trigger graceful restart:
+```
+exec(command="/project/tools/cli/deploy.sh --op restart --reason slack_command --task-id \"manual-restart\"", timeout=10)
+```
+
+**STOP** — process will terminate.
+
+### End of Slash Command Processing
+
+If none of the above commands matched the incoming message, proceed to Step 0.
+
+---
+
 ## Step 0: Safety Pre-Check
 
 Read `/project/state/discovery_config.json` and `/project/state/backlog.json`.
@@ -15,19 +165,19 @@ Run this quick pre-flight before Step 1:
    - Count consecutive tasks from the end of `/project/state/backlog.json` where `status == "failed"` until the first non-failed task.
    - If `discovery_config.enabled == true` AND consecutive failures `>= max_consecutive_failures_before_disable`:
      - Set `enabled` to `false` in `/project/state/discovery_config.json`.
-     - Post to Slack: `"SAFETY: Auto-disabled discovery after {N} consecutive failures. Manual review required."`
+     - Post to Slack: `"⚠️ 안전장치: {N}회 연속 실패로 자동 탐색 비활성화됨. 수동 검토 필요."`
      - Append the same event to `/project/state/decision_log.md`.
 
 2. **Self-referential task check**
    - Read `discovery_config.safety.no_self_referential_tasks`.
    - If `no_self_referential_tasks == true` (blocking enabled):
      - Inspect the next pending task (`status == "pending"`, first by backlog order).
-     - Treat as self-referential if `target_repo == "openclaw-multi-agent"` OR `title`/`description` references OCMA itself (keywords: `"openclaw-multi-agent"`, `"ocma"`, `"orchestrator"`, `"heartbeat"`).
-     - For each self-referential match:
-       - Set `status` to `"cancelled"`.
-       - Set `error` to `"Safety: self-referential task blocked"`.
-       - Post to Slack: `"SAFETY: Blocked self-referential task: {title}"`.
-       - Continue scanning for the next pending task.
+      - Treat as self-referential if `target_repo == "openclaw-multi-agent"` OR `title`/`description` references OCMA itself (keywords: `"openclaw-multi-agent"`, `"ocma"`, `"orchestrator"`, `"heartbeat"`).
+      - For each self-referential match:
+        - Set `status` to `"cancelled"`.
+        - Set `error` to `"Safety: self-referential task blocked"`.
+        - Post to Slack: `"🛡️ 안전장치: 자기참조 작업 차단됨 — {title}"`.
+        - Continue scanning for the next pending task.
      - Write updated `/project/state/backlog.json` if any task was cancelled.
    - If `no_self_referential_tasks == false` (blocking disabled): skip this check entirely. Self-referential tasks are allowed.
 
@@ -88,13 +238,13 @@ Check stale in-progress tasks:
      - Set `status` to `"pending"`
      - Increment `retry_count` by 1
      - Append deadlock reset event to `/project/state/decision_log.md`
-     - Post to Slack: `"DEADLOCK detected | Task: [title] | Action: reset"`
+     - Post to Slack: `"⚠️ 교착상태 감지 | 작업: {title} | 조치: 재시도 (retry #{retry_count})"`
    - If `retry_count >= max_implementation_retries`:
      - Set `status` to `"failed"`
      - Set `error` to `"Deadlock: task stuck in_progress for >30min"`
      - Release git lease in `/project/state/git_state.json` if the task holds one
      - Append deadlock failure event to `/project/state/decision_log.md`
-     - Post to Slack: `"DEADLOCK detected | Task: [title] | Action: failed"`
+     - Post to Slack: `"❌ 교착상태 감지 | 작업: {title} | 조치: 실패 처리 (재시도 한도 초과)"`
 5. Write updated `/project/state/backlog.json`.
 
 Clean expired git leases:
@@ -192,7 +342,7 @@ This step analyzes recent metrics to auto-adjust debate parameters.
 
 6. If any parameter changed:
    - Write updated `/project/state/debate_config.json`.
-   - Post to Slack: `Auto-tuning: adjusted {params_changed}`.
+   - Post to Slack: `⚙️ 자동 조정: {params_changed} 파라미터 변경됨`.
 7. If no changes are needed, log: `Auto-tuning: parameters optimal (convergence_rate={rate}, pass_rate={rate})`.
 
 Key design decisions:
@@ -214,15 +364,18 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
 
 1. Read `/project/state/discovery_config.json`.
 2. If `enabled == false`:
-   - Post to Slack: `"No pending tasks. Discovery disabled. Idle."`
+   - Post to Slack: `"💤 대기중: 작업 없음. 자동 탐색 비활성화 상태."`
    - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
 3. If `enabled == true`:
    - Read `/project/state/run_state.json` and get `total_cycles`.
    - Read `schedule.discovery_interval_cycles` and `schedule.max_auto_tasks_per_discovery`.
-   - Run discovery only when `total_cycles % schedule.discovery_interval_cycles == 0`.
+   - Read `idle_cycles` from `/project/state/run_state.json` (default: 0 if not present).
+   - Increment `idle_cycles` by 1.
+   - Write updated `idle_cycles` to `/project/state/run_state.json`.
+   - Run discovery when `idle_cycles % schedule.discovery_interval_cycles == 0`.
    - If it is not a discovery cycle:
-     - Compute `cycles_until_discovery = schedule.discovery_interval_cycles - (total_cycles % schedule.discovery_interval_cycles)`.
-     - Post to Slack: `"No pending tasks. Next discovery in {cycles_until_discovery} cycles. Idle."`
+     - Compute `cycles_until_discovery = schedule.discovery_interval_cycles - (idle_cycles % schedule.discovery_interval_cycles)`.
+     - Post to Slack: `"💤 대기중: 작업 없음. 다음 탐색까지 {cycles_until_discovery}회 남음."`
      - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
 
 4. Initialize discovery state:
@@ -306,8 +459,8 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
    - Set `sources = generated_sources.join(", ")`.
    - Append accepted generated tasks to `/project/state/backlog.json`.
    - Write updated backlog file.
-   - Post to Slack: `"Discovery: generated {N} new task(s) from {sources}"`.
-   - If `N == 0`: post `"No pending tasks after discovery. Idle."`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
+   - Post to Slack: `"🔍 탐색 완료: {sources}에서 {N}개 신규 작업 생성"`.
+   - If `N == 0`: post `"💤 탐색 후에도 작업 없음. 대기 모드."`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
 
 8. Pick discovered task for execution:
    - Select the generated task with highest `priority_score` (tie-break by generation order) and store as `selected_task`.
@@ -324,7 +477,7 @@ If the selected task has `target_repo` and `github_repo` fields (non-null):
 Record `cycle_start_time = <current ISO 8601 timestamp>` for `total_cycle_time_sec` calculation in Step 8.5.
 
 ```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"Cycle start | Task: [task.title] | ID: [task.id]\"", timeout=15)
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔄 사이클 시작 | 작업: {task.title} | ID: {task.id}\"", timeout=15)
 ```
 
 ## Step 4.5: Prepare Debate Context
@@ -437,7 +590,7 @@ If Critic's `verdict == "REJECT"`:
   - Set task `status` to `"blocked"`
   - Set `block_reason` to Critic's `claim`
   - Write REJECT block decision to `/project/state/decision_log.md`
-  - Post to Slack: `"BLOCKED | Task: [task.title] | Critic REJECT: [claim summary]"`
+  - Post to Slack: `"🚫 차단됨 | 작업: {task.title} | Critic 거부: {claim_summary}"`
   - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
 - If no critical issue exists: treat this as REVISE (downgrade REJECT to REVISE) and continue to next epoch.
 
@@ -463,7 +616,7 @@ If **not converged**:
 3. Set `previous_context` = epoch summary text. Increment `epoch`. Continue loop.
 
 If **epoch > max_epochs** and still not converged:
-- If Critic's final-epoch `verdict == "REJECT"` and Critic `issues` include at least one `severity == "critical"` issue: do NOT tiebreak. Set task `status` to `"blocked"`, set `block_reason` to Critic's `claim`, write to `/project/state/decision_log.md`, post to Slack `"BLOCKED | Task: [task.title] | Critic REJECT: [claim summary]"`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
+- If Critic's final-epoch `verdict == "REJECT"` and Critic `issues` include at least one `severity == "critical"` issue: do NOT tiebreak. Set task `status` to `"blocked"`, set `block_reason` to Critic's `claim`, write to `/project/state/decision_log.md`, post to Slack `"🚫 차단됨 | 작업: {task.title} | Critic 거부: {claim_summary}"`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
 - If Critic's final-epoch verdict is `"APPROVE"` or `"REVISE"`, or `"REJECT"` without any critical issue → force tiebreak (same as stale debate). Proceed to Step 6.
 
 #### 5e. RECORD DEBATE LEARNING (after convergence or tiebreak)
@@ -509,7 +662,7 @@ If the task has NO target_repo → skip this step (non-git task, backward compat
 
 Post to Slack:
 ```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"Task: [task.title] | Phase: IMPLEMENT | Sending to Implementer\"", timeout=15)
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔨 구현 단계 | 작업: {task.title} | Implementer에게 전달\"", timeout=15)
 ```
 
 Call Implementer:
@@ -531,7 +684,7 @@ Parse Implementer's response as JSON.
 
 Post to Slack:
 ```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"Task: [task.title] | Phase: VERIFY | Sending to Verifier\"", timeout=15)
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔍 검증 단계 | 작업: {task.title} | Verifier에게 전달\"", timeout=15)
 ```
 
 Call Verifier:
@@ -592,7 +745,7 @@ If the task has `target_repo` AND `verdict == "PASS"`:
    ```
 
 3. Store PR metadata in backlog: `pr_number`, `pr_url`
-4. Post to Slack: "✅ PR created: <pr_url>"
+4. Post to Slack: "✅ PR 생성 완료: {pr_url}"
 
 If the task has NO target_repo → skip (non-git task).
 If `verdict == "FAIL"` → skip PR creation (proceed to retry or fail).
@@ -650,7 +803,7 @@ If the task has `target_repo == "openclaw-multi-agent"` AND `verdict == "PASS"` 
 
 4. **Record deployment**:
    - Append to `/project/state/decision_log.md`: `"Self-deploy: merged PR #<pr_number> and pulled changes for <task.id>"`
-   - Post to Slack: `"Self-deploy: PR #<pr_number> merged and deployed for <task.id>"`
+   - Post to Slack: `"🚀 자가배포: PR #{pr_number} 병합 및 배포 완료 — {task.id}"`
 
 If `target_repo != "openclaw-multi-agent"` → skip this step entirely.
 If `verdict == "FAIL"` → skip.
@@ -662,12 +815,13 @@ If `verdict == "FAIL"` → skip.
 3. Set `last_cycle_id` to the task ID
 4. Set `last_completed_step` to the final phase reached (e.g., "verify-pass", "verify-fail", "debate-escalated")
 5. Set `last_updated` to current ISO 8601 timestamp
-6. Clear `cycle_lock`: set to `null` in run_state.json
-7. Write updated run_state back
+6. Reset `idle_cycles` to `0` (a task completed, so idle counter resets)
+7. Clear `cycle_lock`: set to `null` in run_state.json
+8. Write updated run_state back
 
 Post final status to Slack:
 ```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"Cycle complete | Task: [task.title] | Result: [completed/failed/escalated] | Total cycles: [N]\"", timeout=15)
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"✅ 사이클 완료 | 작업: {task.title} | 결과: {result} | 총 {total_cycles}회\"", timeout=15)
 ```
 
 ### Audit Trail
@@ -716,7 +870,7 @@ Count consecutive cycles where no task moved to `"completed"`. If this count >= 
 1. Set `status` to `"paused"` in run_state
 2. Set `pause_reason` to `"Auto-paused: {N} cycles without progress"`
 3. Write updated run_state
-4. Post to Slack: "Auto-paused after {N} cycles without progress. Resume manually."
+4. Post to Slack: "⏸️ 자동 정지: {N}회 진행 없음. /ocma resume 으로 재개하세요."
 
 ## Step 9.5: Clone Cleanup
 
@@ -751,7 +905,7 @@ If `total_cycles % 10 == 0`:
    ```
 4. Count deleted clones. If count > 0:
    - Append to `/project/state/decision_log.md`: `"Periodic sweep (cycle {total_cycles}): removed {count} orphaned clone(s)"`
-   - Post to Slack: `"Sweep: removed {count} orphaned clone(s)"`
+   - Post to Slack: `"🧹 정리: 고아 클론 {count}개 삭제"`
 
 ## Step 9.7: Self-Trigger Next Cycle
 
@@ -793,7 +947,7 @@ This step runs after every cycle to reset the restart counter and check for CLI 
    - Exit code `2` = updates available. Exit code `0` = all up to date.
 
 3. **If updates are available** (`updates_available == true` or exit code `2`):
-   - Post to Slack: `"Tool updates detected. Restarting to apply updates."`
+   - Post to Slack: `"🔄 도구 업데이트 감지. 업데이트 적용을 위해 재시작합니다."`
    - Append to `/project/state/decision_log.md`: `"Tool update restart triggered at cycle <total_cycles>"`
    - Trigger graceful restart:
      ```

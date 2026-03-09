@@ -49,15 +49,16 @@ exec(command="/project/tools/cli/<tool>.sh --prompt \"<full prompt with role + t
 
 Trigger model: cycles are event-driven; each completed cycle self-triggers the next via `openclaw system event --mode now ...`. A watchdog cron runs every 30 minutes as fallback.
 
-1. Run safety pre-check, then read `/project/state/run_state.json` and apply cycle lock semantics
-2. Check run status (`running` only), then load `/project/state/debate_config.json`
-3. Pick next `pending` task from `/project/state/backlog.json` (or run discovery fallback)
-4. Run debate: propose(Planner) → challenge(Critic) → revise(Planner) → decide
-5. If converged: implement(Implementer) → verify(Verifier)
-6. If self-referential task (OCMA): auto-merge PR → git pull → live deploy (Step 7.7)
-7. Update state, clear cycle lock, and report
-8. Run auto-pause/cleanup, then self-trigger next cycle
-9. Check CLI tool versions → if updates available, graceful restart for npm update (Step 9.8)
+1. Check if triggered by Slack slash command → handle command and STOP (12 commands supported)
+2. Run safety pre-check, then read `/project/state/run_state.json` and apply cycle lock semantics
+3. Check run status (`running` only), then load `/project/state/debate_config.json`
+4. Pick next `pending` task from `/project/state/backlog.json` (or run discovery fallback with `idle_cycles` tracking)
+5. Run debate: propose(Planner) → challenge(Critic) → revise(Planner) → decide
+6. If converged: implement(Implementer) → verify(Verifier)
+7. If self-referential task (OCMA): auto-merge PR → git pull → live deploy (Step 7.7)
+8. Update state (reset `idle_cycles`), clear cycle lock, and report
+9. Run auto-pause/cleanup, then self-trigger next cycle
+10. Check CLI tool versions → if updates available, graceful restart for npm update (Step 9.8)
 
 ## Full Debate Protocol
 
@@ -198,11 +199,24 @@ External events from GitHub and Slack can trigger new backlog entries. When the 
 - **PR review submitted**: If a reviewer requests changes on an OCMA PR, create a new task to address the review comments. Set `priority: "high"`, `fast_path: true`.
 - **Issue created**: If a GitHub issue is created with label `ocma-task`, parse the issue body and add it to the backlog with `generated_by: "webhook:github_issue"`.
 
-### Slack Commands
-- `/ocma status`: Reply with current run_state, active task, and queue depth.
-- `/ocma pause`: Set run_state.status to "paused".
-- `/ocma resume`: Set run_state.status to "running".
-- `/ocma add <description>`: Add a new task to the backlog from Slack.
+### Slack Commands (한국어 응답)
+
+All Slack command responses are in Korean. Commands are processed in HEARTBEAT.md "Slash Command Processing" section before the heartbeat cycle runs.
+
+| Command | Description | Category |
+|---------|-------------|----------|
+| `/ocma help` | 명령어 목록 표시 | 정보 |
+| `/ocma status` | 현재 상태 요약 (실행 상태, 사이클 수, 작업 현황) | 정보 |
+| `/ocma pause` | 자율 사이클 일시정지 | 제어 |
+| `/ocma resume` | 정지 해제 + 즉시 사이클 트리거 | 제어 |
+| `/ocma run` | 수동 사이클 트리거 | 제어 |
+| `/ocma backlog` | 대기열 보기 (상태별 그룹, 최대 10개) | 정보 |
+| `/ocma add <설명>` | 작업 수동 추가 (priority: medium, score: 0.8) | 관리 |
+| `/ocma cancel <task-id>` | 작업 취소 (pending/blocked만 가능) | 관리 |
+| `/ocma logs [N]` | 최근 N개 사이클 결과 (기본: 5) | 정보 |
+| `/ocma health` | 시스템 상태 점검 (도구 버전, 디스크, 재시작 횟수) | 진단 |
+| `/ocma config [key] [value]` | 설정 조회/변경 (discovery_enabled, discovery_interval, max_epochs, convergence_threshold) | 관리 |
+| `/ocma restart` | 컨테이너 재시작 (graceful exit → podman restart) | 관리 |
 
 ### Event Processing
 When an event arrives:
@@ -266,6 +280,7 @@ Additional fields per role:
   "stopped_by": null,
   "pause_reason": null,
   "total_cycles": 1,
+  "idle_cycles": 0,
   "cycle_lock": null,
   "config": {
     "max_cycles_without_progress": 5,
@@ -354,12 +369,12 @@ Each entry in `/project/state/metrics.json` contains:
 
 ## Slack Reporting (Optional)
 
-Post after each cycle using `exec`:
+Post after each cycle using `exec`. All messages are in **Korean** for user readability:
 ```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔄 Cycle N | Task: [title] | Phase: [phase]\"", timeout=15)
+exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"✅ 사이클 완료 | 작업: {task.title} | 결과: {result} | 총 {total_cycles}회\"", timeout=15)
 ```
 
-If error occurs, post immediately with full context using the same `openclaw message send` command pattern.
+If error occurs, post immediately with full context using the same `openclaw message send` command pattern. Error messages also in Korean.
 
 ## Response Efficiency
 
