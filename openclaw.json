@@ -108,6 +108,7 @@
         },
       },
       groupPolicy: "open",
+      allowFrom: ["*"],  // 모든 Slack 사용자 허용
     },
   },
 
