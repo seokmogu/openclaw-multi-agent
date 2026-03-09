@@ -1,4 +1,41 @@
 {
   "max_entries": 200,
-  "entries": []
+  "entries": [
+    {
+      "id": "learning-1741444960",
+      "task_id": "task-arp-001",
+      "type": "performance_metric",
+      "content": "Task task-arp-001: High-confidence pass (0.92). Approach: Centralized setErrorHandler + Targeted Catches with AppError hierarchy. 10/10 checks passed.",
+      "tags": ["error-handling", "api", "typescript", "success"],
+      "created_at": "2026-03-08T14:42:40Z",
+      "applied": true
+    },
+    {
+      "id": "learning-1741444961",
+      "task_id": "task-arp-001",
+      "type": "debate_pattern",
+      "content": "Task task-arp-001: Fast convergence in epoch 1. Planner and Critic aligned on: Centralized setErrorHandler with AppError hierarchy is Fastify-idiomatic.",
+      "tags": ["error-handling", "api", "typescript", "fast_convergence"],
+      "created_at": "2026-03-08T14:42:40Z",
+      "applied": true
+    },
+    {
+      "id": "learning-1741475660",
+      "task_id": "task-ocma-002",
+      "type": "performance_metric",
+      "content": "Task task-ocma-002: High-confidence pass (0.95). Pure POSIX test harness with PATH-based mocking. 38/38 tests, <1s. Key lesson: POSIX shell variable scoping is global — function-internal vars like _tmpfile clash with caller vars.",
+      "tags": ["testing", "shell", "cli", "self-improvement", "success"],
+      "created_at": "2026-03-08T23:14:20Z",
+      "applied": true
+    },
+    {
+      "id": "learning-1741475661",
+      "task_id": "task-ocma-002",
+      "type": "debate_pattern",
+      "content": "Task task-ocma-002: Fast convergence in epoch 1. Key Critic insights: set -e hazard in failure-path tests (must use subshell capture), trap EXIT for mock cleanup robustness.",
+      "tags": ["testing", "shell", "cli", "fast_convergence"],
+      "created_at": "2026-03-08T23:14:20Z",
+      "applied": true
+    }
+  ]
 }

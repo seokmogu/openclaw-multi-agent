@@ -1,5 +1,111 @@
 # Decision Log
 
+## Deadlock Reset: task-ocma-002
+**Date:** 2026-03-08T15:23:00Z
+**Action:** Reset to pending (retry_count: 0→1). Task stuck in_progress for ~2370s (>1800s threshold). Previous cycle lock was stale.
+
+---
+
+## Debate: task-ocma-002 — Add Shell Script Unit Tests for OCMA CLI Tools
+**Date:** 2026-03-08T14:43:30Z (Cycle 3)
+**Status:** CONVERGED after 1 epoch
+
+### Epoch 1: Propose (Planner)
+- **Claim:** Pure POSIX shell test harness with PATH-based command mocking
+- **Recommended:** Pure POSIX over bats-core (POSIX compliance, zero dependencies)
+- **31 initial tests** across test_common.sh, test_git.sh, test_gh.sh
+
+### Epoch 1: Challenge (Critic) — Verdict: APPROVE
+**Major (2):** set -e kills failure-path test subshells before assertions; mock cleanup fails if subshell dies
+**Minor (3):** check_gh_token exit vs return; no idempotency test; no mock isolation negative test
+
+### Epoch 1: Revise (Planner) — All 5 issues ACCEPTED
+- Failure-path tests use subshell exit capture: `_rc=0; (cmd) || _rc=$?`
+- trap EXIT in mock_helpers.sh + belt-and-suspenders cleanup in runner
+- check_gh_token always in subshell
+- Added 3 tests: idempotency, mock isolation (git), mock isolation (gh)
+- Total: 37 tests
+
+### Decision (Orchestrator)
+**CONVERGED** — APPROVED. 6 subtasks, 37 tests, pure POSIX.
+
+### Implementation (Orchestrator — direct)
+- 6 new files in tools/cli/tests/: test_runner.sh, assert_helpers.sh, mock_helpers.sh, test_common.sh, test_git.sh, test_gh.sh
+- +742 lines, commit 962e922
+- Bugs fixed during implementation: mock_sleep sed portability, test_runner grep -c parsing, POSIX global var scoping clash with truncate_output
+- Draft PR: https://github.com/seokmogu/openclaw-multi-agent/pull/1
+
+### Verification (Verifier via sessions_spawn) — Verdict: PASS (confidence: 0.95)
+- 7/7 checks passed: retry_with_backoff, check_gh_token, git ops, gh ops, edge cases, POSIX compliance, no real API calls
+- Risks accepted: mock stdout cosmetic leaks, run_with_timeout bug documented not tested, mock PATH leak on crash
+
+### Cycle 3 — 2026-03-08T23:15:00Z
+- **Task**: task-ocma-002 — Add shell script unit tests for OCMA CLI tools
+- **Debate**: 1 epoch, convergence=yes, tiebreak=no
+- **Decision**: Pure POSIX test harness with PATH-based command mocking, trap EXIT cleanup
+- **Implementation**: 6 files, +742 lines
+- **Verification**: PASS (confidence: 0.95)
+- **Outcome**: completed
+- **Duration**: ~510s
+
+---
+
+## Debate: task-arp-001 — Add Comprehensive Error Handling to exchange-api
+**Date:** 2026-03-08T14:26:00Z (Cycle 2 — new architecture)
+**Status:** CONVERGED after 1 epoch
+
+### Epoch 1: Propose (Planner via sessions_send)
+- **Claim:** Centralized setErrorHandler with AppError class hierarchy + targeted catches only around embedding service calls
+- **Recommended:** Centralized setErrorHandler + Targeted Catches (Final v2)
+- **Options:** (1) Centralized + Targeted Catches — medium, (2) Minimal setErrorHandler only — low
+- **6 subtasks**, ~5 files modified + 2 new files
+
+### Epoch 1: Challenge (Critic via sessions_send) — Verdict: APPROVE
+**All minor issues (4):**
+1. mapDrizzleError should handle 23502 (not-null violation) + fallback DatabaseError for unmapped SQLSTATE
+2. ValidationError must produce identical JSON shape as existing Zod safeParse responses
+3. Add test scenarios: concurrent error+success, wrong Content-Type, SSE mid-stream error
+4. ExternalServiceError should include Retry-After header for transient outages
+
+### Epoch 1: Revise (Planner via sessions_send) — All 4 issues ACCEPTED
+- Extended mapDrizzleError: 23505→ConflictError, 23503→ValidationError, 23502→ValidationError, default→DatabaseError(500)
+- Explicit schema parity verification: ValidationError uses code='VALIDATION_ERROR' matching existing Zod pattern
+- Expanded tests from 7 to 10 scenarios
+- Added Retry-After:30 header on 502 ExternalServiceError responses
+
+### Decision (Orchestrator)
+**CONVERGED** — Critic APPROVED, all minor feedback incorporated. Plan is Fastify-idiomatic.
+
+**Approved Plan (7 subtasks):**
+0. Verify git state and clean branch
+1. Create src/errors.ts with AppError hierarchy + isDrizzleError() + mapDrizzleError (extended pg codes)
+2. Enhance server.ts setErrorHandler with 4-tier cascade + Retry-After on 502
+3. Targeted try-catch around generateEmbedding() in profiles.ts, jobs.ts, search.ts
+4. SSE-specific stream error handling in sse.ts
+5. Create error-handling.test.ts with 10 test scenarios
+6. Run full test suite, verify schema parity, commit + push
+
+### Implementation (Orchestrator — direct, after gateway crash during Implementer call)
+- Completed from ~70% prior state: fixed duplicate import, added Retry-After+logging, completed jobs.ts/search.ts/sse.ts changes, rewrote tests
+- 7 files changed, +341/-70 lines
+- Commit: 244936e on ocma/task-arp-001
+
+### Verification (Verifier via sessions_send) — Verdict: PASS (confidence: 0.92)
+- 10/10 checks passed: file existence, error class hierarchy, 4-tier cascade, targeted catches, SSE handling, test quality, git state, TypeScript compilation, test execution, no breaking changes
+- Risks accepted: 23502 path untested, production sanitization untested, rate-limit 429 only smoke-tested
+- Draft PR created: https://github.com/seokmogu/agent-recruitment-platform/pull/1
+
+### Cycle 2 — 2026-03-08T14:43:00Z
+- **Task**: task-arp-001 — Add comprehensive error handling to API endpoints
+- **Debate**: 1 epoch, convergence=yes, tiebreak=no
+- **Decision**: Centralized setErrorHandler with AppError hierarchy + targeted catches
+- **Implementation**: 7 files, +341 -70
+- **Verification**: PASS (confidence: 0.92)
+- **Outcome**: completed
+- **Duration**: ~1020s
+
+---
+
 ## Debate: task-e2e-002 — Rate Limiter Middleware for Express.js
 **Date:** 2026-03-07T14:18:00Z
 **Status:** CONVERGED after 1 epoch
