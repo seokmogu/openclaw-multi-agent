@@ -23,6 +23,7 @@ services:
       HOME: /home/node
       TERM: xterm-256color
       PROJECT_ROOT: /project
+      NODE_EXTRA_CA_CERTS: /etc/ssl/certs/jobkorea-ca.pem
 
       # Git configuration
       GIT_AUTHOR_NAME: "OCMA Bot"
@@ -65,6 +66,8 @@ services:
 
       # Host repo root (for self-deploy: git pull after PR merge)
       - .:/project/host-repo
+
+      - ${HOME}/jobkorea-ca.pem:/etc/ssl/certs/jobkorea-ca.pem:ro
 
       # CLI credential dirs from host (read-only)
       - ${HOME}/.claude.json:/home/node/.claude.json:ro
