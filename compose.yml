@@ -63,6 +63,9 @@ services:
       - ./state:/project/state
       - ./workspaces:/project/workspaces
 
+      # Host repo root (for self-deploy: git pull after PR merge)
+      - .:/project/host-repo
+
       # CLI credential dirs from host (read-only)
       - ${HOME}/.claude.json:/home/node/.claude.json:ro
       - ${HOME}/.claude:/home/node/.claude:ro

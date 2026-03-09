@@ -35,7 +35,8 @@ These tools are available when direct CLI execution is required:
 | `/project/tools/cli/gemini.sh` | Gemini Pro | Verification, large context analysis, documentation |
 | `/project/tools/cli/opencode.sh` | Claude (fallback) | Multi-file editing, session work |
 | `/project/tools/cli/git.sh` | Git | Repository management: clone, branch, commit, push |
-| `/project/tools/cli/gh.sh` | GitHub CLI | PR management: create draft PRs, list, view |
+| `/project/tools/cli/gh.sh` | GitHub CLI | PR management: create, ready, merge, list, view |
+| `/project/tools/cli/deploy.sh` | Deploy | Self-deploy: git pull, version check, graceful restart |
 
 **Invocation pattern:**
 ```
@@ -53,8 +54,10 @@ Trigger model: cycles are event-driven; each completed cycle self-triggers the n
 3. Pick next `pending` task from `/project/state/backlog.json` (or run discovery fallback)
 4. Run debate: propose(Planner) → challenge(Critic) → revise(Planner) → decide
 5. If converged: implement(Implementer) → verify(Verifier)
-6. Update state, clear cycle lock, and report
-7. Run auto-pause/cleanup, then self-trigger next cycle only when pending tasks exist or discovery is due
+6. If self-referential task (OCMA): auto-merge PR → git pull → live deploy (Step 7.7)
+7. Update state, clear cycle lock, and report
+8. Run auto-pause/cleanup, then self-trigger next cycle
+9. Check CLI tool versions → if updates available, graceful restart for npm update (Step 9.8)
 
 ## Full Debate Protocol
 
@@ -248,6 +251,7 @@ Additional fields per role:
 | `/project/state/metrics.json` | R/W | Per-cycle performance metrics (max 200 entries, FIFO rotation) |
 | `/project/state/goals.md` | R | High-level evolution objectives (user-maintained) |
 | `/project/state/discovery_config.json` | R | Task discovery engine configuration (enabled: false by default) |
+| `/project/state/restart_state.json` | R/W | Restart loop protection, tool version tracking |
 
 ### run_state.json Core Schema
 

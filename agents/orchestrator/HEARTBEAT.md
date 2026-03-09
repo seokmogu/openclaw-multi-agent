@@ -599,7 +599,7 @@ If `verdict == "FAIL"` → skip PR creation (proceed to retry or fail).
 
 ## Step 7.6: Extract Learnings from Verification
 
-Run after **EVERY** verification result (both PASS and FAIL), before Step 8.
+Run after **EVERY** verification result (both PASS and FAIL), before Step 7.7.
 
 1. Read `/project/state/learning_log.json`.
 2. Build learning entries using the Learning Log Entry Schema in `/project/agents/orchestrator/AGENTS.md` (`id`, `task_id`, `type`, `content`, `tags`, `created_at`, `applied`).
@@ -624,6 +624,36 @@ Run after **EVERY** verification result (both PASS and FAIL), before Step 8.
 5. Append entry/entries to `entries`.
 6. If `entries.length > max_entries`, remove oldest entries first (FIFO) until within limit.
 7. Write updated `/project/state/learning_log.json`.
+
+## Step 7.7: Self-Deploy (Self-Referential Tasks Only)
+
+If the task has `target_repo == "openclaw-multi-agent"` AND `verdict == "PASS"` AND `pr_url` is set:
+
+1. **Mark PR as ready** (PRs are created as drafts):
+   ```
+   exec(command="/project/tools/cli/gh.sh --op pr-ready --github-repo \"<task.github_repo>\" --pr-number \"<task.pr_number>\" --task-id \"<task.id>\"", timeout=30)
+   ```
+
+2. **Auto-merge the PR**:
+   ```
+   exec(command="/project/tools/cli/gh.sh --op pr-merge --github-repo \"<task.github_repo>\" --pr-number \"<task.pr_number>\" --merge-method squash --task-id \"<task.id>\"", timeout=30)
+   ```
+   - If merge succeeds: log `"Self-deploy: PR #<pr_number> merged for <task.id>"`
+   - If merge fails: log error, skip remaining self-deploy steps, proceed to Step 8. The PR remains open for manual review.
+
+3. **Pull changes into host repo**:
+   ```
+   exec(command="/project/tools/cli/deploy.sh --op pull --task-id \"<task.id>\"", timeout=30)
+   ```
+   - This updates all volume-mounted directories (agents/, tools/, state/) immediately via the host repo mount at `/project/host-repo`.
+   - Changes take effect in the next cycle without container restart.
+
+4. **Record deployment**:
+   - Append to `/project/state/decision_log.md`: `"Self-deploy: merged PR #<pr_number> and pulled changes for <task.id>"`
+   - Post to Slack: `"Self-deploy: PR #<pr_number> merged and deployed for <task.id>"`
+
+If `target_repo != "openclaw-multi-agent"` → skip this step entirely.
+If `verdict == "FAIL"` → skip.
 
 ## Step 8: Update State and Report
 
@@ -745,6 +775,36 @@ Determine if the next cycle should be triggered immediately:
    - If discovery is NOT due:
      - Do NOT self-trigger. Let the watchdog cron handle the next wake.
      - Log: `"Idle: no pending tasks, no discovery due. Waiting for watchdog cron."`
+
+## Step 9.8: Tool Version Check & Graceful Restart
+
+This step runs after every cycle to reset the restart counter and check for CLI tool updates.
+
+1. **Reset restart counter** (cycle completed successfully):
+   ```
+   exec(command="/project/tools/cli/deploy.sh --op reset-counter --task-id \"cycle-<total_cycles>\"", timeout=5)
+   ```
+
+2. **Check tool versions**:
+   ```
+   exec(command="/project/tools/cli/deploy.sh --op version-check --task-id \"cycle-<total_cycles>\"", timeout=30)
+   ```
+   - Parse the JSON output. Check `updates_available` field.
+   - Exit code `2` = updates available. Exit code `0` = all up to date.
+
+3. **If updates are available** (`updates_available == true` or exit code `2`):
+   - Post to Slack: `"Tool updates detected. Restarting to apply updates."`
+   - Append to `/project/state/decision_log.md`: `"Tool update restart triggered at cycle <total_cycles>"`
+   - Trigger graceful restart:
+     ```
+     exec(command="/project/tools/cli/deploy.sh --op restart --reason tool_update --task-id \"cycle-<total_cycles>\"", timeout=10)
+     ```
+   - This sends SIGTERM to PID 1 → container exits → podman restarts (`restart: unless-stopped`) → entrypoint.sh runs `npm update -g` → fresh start with updated tools.
+   - **NOTE**: After this exec, the current process terminates. No further steps execute.
+
+4. **If no updates available**: proceed normally (Step 9.7 already handled next cycle trigger).
+
+**Restart loop protection**: entrypoint.sh checks `/project/state/restart_state.json`. If `restart_count > 3` within 10 minutes, entrypoint adds a 60-second delay before starting. The counter resets on every successful cycle completion (step 1 above).
 
 ## Error Handling
 

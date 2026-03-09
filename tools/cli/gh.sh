@@ -13,13 +13,15 @@ BRANCH_NAME=""
 BASE_BRANCH="main"
 TITLE=""
 BODY=""
+PR_NUMBER=""
+MERGE_METHOD="squash"
 
 usage() {
     cat >&2 <<EOF
 Usage: $0 --op OPERATION --github-repo OWNER/REPO --task-id ID [OPTIONS]
 
 Required:
-  --op OPERATION          pr-create|pr-list|pr-status|pr-close|pr-view|repo-view
+  --op OPERATION          pr-create|pr-list|pr-status|pr-close|pr-view|pr-ready|pr-merge|repo-view
   --github-repo OWNER/REPO
   --task-id ID
 
@@ -28,6 +30,8 @@ Optional:
   --base-branch BASE      Base branch for pr-create (default: main)
   --title TITLE           PR title (required for pr-create)
   --body BODY             PR body (required for pr-create)
+  --pr-number NUMBER      PR number (required for pr-ready, pr-merge)
+  --merge-method METHOD   Merge method: squash|merge|rebase (default: squash)
   --timeout SECS          Timeout in seconds (default: ${DEFAULT_TIMEOUT})
 
 Exit codes:
@@ -67,6 +71,14 @@ parse_gh_args() {
             --body)
                 shift
                 BODY="$1"
+                ;;
+            --pr-number)
+                shift
+                PR_NUMBER="$1"
+                ;;
+            --merge-method)
+                shift
+                MERGE_METHOD="$1"
                 ;;
             --task-id)
                 shift
@@ -151,6 +163,16 @@ main() {
         pr-view)
             require_value "--branch" "$BRANCH_NAME"
             run_logged retry_with_backoff gh pr view --repo "$GITHUB_REPO" "$BRANCH_NAME" --json number,title,state,url,isDraft
+            ;;
+
+        pr-ready)
+            require_value "--pr-number" "$PR_NUMBER"
+            run_logged retry_with_backoff gh pr ready --repo "$GITHUB_REPO" "$PR_NUMBER"
+            ;;
+
+        pr-merge)
+            require_value "--pr-number" "$PR_NUMBER"
+            run_logged retry_with_backoff gh pr merge --repo "$GITHUB_REPO" "$PR_NUMBER" --"$MERGE_METHOD" --delete-branch
             ;;
 
         repo-view)

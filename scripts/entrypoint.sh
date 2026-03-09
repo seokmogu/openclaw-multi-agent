@@ -47,13 +47,54 @@ if [ -d "$HOME/.ssh" ] && [ ! -f "$HOME/.ssh/known_hosts" ]; then
 fi
 
 # ── 5. Auto-Update CLI Tools ─────────────────────────────────────────────────
-# Update AI CLI tools on every restart (non-blocking, best-effort)
-# OpenClaw itself is updated via base image rebuild (podman-compose build --pull)
 echo "[entrypoint] Checking for CLI tool updates..."
 npm update -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli 2>/dev/null || true
-# Also try OpenClaw self-update (works when installed via npm, not from source)
 openclaw update --yes --no-restart 2>/dev/null || true
 echo "[entrypoint] CLI tools updated"
+
+# ── 5.5. Restart Loop Protection ────────────────────────────────────────────
+RESTART_STATE="/project/state/restart_state.json"
+if [ -f "$RESTART_STATE" ]; then
+  _restart_count=$(python3 -c "import json; print(json.load(open('$RESTART_STATE')).get('restart_count', 0))" 2>/dev/null || echo 0)
+  _last_restart=$(python3 -c "import json; print(json.load(open('$RESTART_STATE')).get('last_restart_at', ''))" 2>/dev/null || echo "")
+
+  if [ "$_restart_count" -gt 3 ] && [ -n "$_last_restart" ]; then
+    _last_epoch=$(python3 -c "from datetime import datetime; print(int(datetime.fromisoformat('$_last_restart'.replace('Z','+00:00')).timestamp()))" 2>/dev/null || echo 0)
+    _now_epoch=$(date +%s)
+    _diff=$((_now_epoch - _last_epoch))
+
+    if [ "$_diff" -lt 600 ]; then
+      echo "[entrypoint] WARNING: Restart loop detected ($_restart_count restarts in <10min). Waiting 60s..."
+      sleep 60
+    fi
+  fi
+fi
+
+# ── 5.6. Record Tool Versions ───────────────────────────────────────────────
+python3 -c "
+import json, subprocess
+versions = {}
+for pkg in ['@anthropic-ai/claude-code', '@openai/codex', '@google/gemini-cli']:
+    try:
+        r = subprocess.run(['npm', 'list', '-g', pkg, '--depth=0', '--json'],
+                          capture_output=True, text=True, timeout=10)
+        deps = json.loads(r.stdout).get('dependencies', {})
+        versions[pkg] = deps.get(pkg, {}).get('version', 'unknown')
+    except:
+        versions[pkg] = 'unknown'
+try:
+    r = subprocess.run(['openclaw', '--version'], capture_output=True, text=True, timeout=10)
+    versions['openclaw'] = r.stdout.strip()
+except:
+    versions['openclaw'] = 'unknown'
+sf = '/project/state/restart_state.json'
+try:
+    with open(sf) as f: state = json.load(f)
+except: state = {'restart_count': 0}
+state['tool_versions'] = versions
+with open(sf, 'w') as f: json.dump(state, f, indent=2)
+print('[entrypoint] Tool versions: ' + ', '.join(f'{k.split(\"/\")[-1]}={v}' for k,v in versions.items()))
+" 2>/dev/null || echo "[entrypoint] WARNING: Failed to record tool versions"
 
 # ── 6. Workspace Directories ────────────────────────────────────────────────
 mkdir -p /project/workspaces/.repos
