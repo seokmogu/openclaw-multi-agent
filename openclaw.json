@@ -134,6 +134,10 @@
   // 에이전트 기본 설정
   agents: {
     defaults: {
+      model: {
+        primary: "anthropic/claude-opus-4-6",
+        fallbacks: ["openai-codex/gpt-5.4"],  // Claude rate limit 시 GPT-5.4로 자동 전환
+      },
       subagents: {
         runTimeoutSeconds: 600,  // 서브에이전트 10분 타임아웃
         archiveAfterMinutes: 120,
