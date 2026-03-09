@@ -421,6 +421,12 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
    - Increment `idle_cycles` by 1.
    - Write updated `idle_cycles` to `/project/state/run_state.json`.
    - Run discovery when `idle_cycles % schedule.discovery_interval_cycles == 0`.
+
+   > **Worked examples** (using config values, not hardcoded):
+   > - `idle_cycles=7, schedule.discovery_interval_cycles=3` → `7%3=1 ≠ 0` → skip, `cycles_until = 3-(7%3) = 2`
+   > - `idle_cycles=9, schedule.discovery_interval_cycles=3` → `9%3=0` → **run discovery**
+   > - `idle_cycles=1, schedule.discovery_interval_cycles=5` → `1%5=1 ≠ 0` → skip, `cycles_until = 4`
+
    - If it is not a discovery cycle:
      - Compute `cycles_until_discovery = schedule.discovery_interval_cycles - (idle_cycles % schedule.discovery_interval_cycles)`.
      - Post to Slack: `"💤 대기중: 작업 없음. 다음 탐색까지 {cycles_until_discovery}회 남음."`
@@ -565,6 +571,12 @@ Before each `sessions_send` call in the debate:
    - Pass ONLY this summary (not full transcript) to the new epoch's sessions.
    - This prevents context window overflow across multi-epoch debates.
 
+   **Epoch summary template** — extract these fields:
+   - `planner.claim` (original proposal), `critic.issues` (major only), `revised.claim`, unresolved `risk` items
+   
+   Example before (raw transcript, ~2000 tokens) → after (summary, ~150 tokens):
+   > "Epoch 1: Planner proposed token-bucket rate limiter (O(1) per request). Critic raised major issue: no TTL eviction policy. Planner revised to add 1h TTL. Unresolved: cold-start latency after eviction, no load testing data."
+
 Record `debate_start_time = <current ISO 8601 timestamp>` when debate begins.
 
 **Wall-Time Timeout**: At the start of each epoch, check if elapsed wall-time exceeds `max_debate_wall_time_sec` from debate_config.json (default: 600 seconds). If exceeded, force tiebreak immediately with tag `[WALL-TIME-EXCEEDED]` and proceed to Step 6.
@@ -597,6 +609,9 @@ Message must include:
 
 Parse Planner's response as JSON. If parsing fails, retry once with: "Your response was not valid JSON. Respond with ONLY a JSON object, no markdown fences, no explanation."
 
+> **Example Planner response** (see AGENTS.md JSON Contract for full schema):
+> `{"claim": "Use token bucket with sliding window", "evidence": ["O(1) per request", "Redis-backed"], "risk": ["Memory growth under burst"], "next_action": "implement", "options": ["token-bucket", "leaky-bucket"], "recommended": "token-bucket", "subtasks": [{"title": "Add rate limiter middleware", "scope": "src/middleware/"}]}`
+
 #### 5b. CHALLENGE — Call Critic
 
 ```
@@ -609,6 +624,9 @@ Message must include:
 - Explicit instruction: "Review this proposal adversarially. Respond with JSON only. Required fields: claim (start with APPROVE/REVISE/REJECT), evidence, risk, next_action, issues, verdict."
 
 Parse Critic's response as JSON.
+
+> **Example Critic response** (see AGENTS.md JSON Contract for full schema):
+> `{"claim": "REVISE: token bucket lacks eviction policy", "evidence": ["No TTL on bucket keys"], "risk": ["Stale entries accumulate"], "next_action": "revise", "issues": [{"severity": "major", "description": "Missing TTL configuration"}], "verdict": "REVISE"}`
 
 #### 5c. REVISE — Call Planner
 
@@ -623,6 +641,9 @@ Message must include:
 - Explicit instruction: "Address the Critic's concerns. Mark each criticism as accepted or rebutted with reasoning. Respond with JSON only. Required fields: claim, evidence, risk, next_action, options, recommended, subtasks."
 
 Parse Planner's revised response as JSON.
+
+> **Example revised Planner response**: Same schema as 5a, but `claim` should reference addressed criticisms:
+> `{"claim": "Token bucket with 1h TTL eviction (addresses Critic TTL concern)", "evidence": ["TTL auto-cleanup", "O(1) per request"], "risk": ["Cold start after eviction"], "next_action": "implement", ...}`
 
 #### 5d. DECIDE — Evaluate Convergence (Internal)
 
@@ -728,6 +749,9 @@ Message must include:
 
 Parse Implementer's response as JSON.
 
+> **Example Implementer response** (see AGENTS.md JSON Contract for full schema):
+> `{"claim": "Added rate limiter middleware in 2 files", "evidence": ["src/middleware/rateLimiter.ts created", "src/index.ts updated"], "risk": ["No load test yet"], "next_action": "verify", "artifacts": [{"file": "src/middleware/rateLimiter.ts", "action": "created", "tool_used": "edit"}]}`
+
 ## Step 7: Verify
 
 Post to Slack:
@@ -749,6 +773,9 @@ Message must include:
 - Explicit instruction: "Verify the implementation against requirements. Respond with JSON only. Required fields: claim (PASS or FAIL with summary), evidence, risk, next_action, checks, confidence, verdict."
 
 Parse Verifier's response as JSON.
+
+> **Example Verifier response** (see AGENTS.md JSON Contract for full schema):
+> `{"claim": "PASS: rate limiter works correctly", "evidence": ["All 12 tests pass", "Handles 1k req/s"], "risk": ["No chaos testing"], "next_action": "verify", "checks": [{"name": "unit-tests", "status": "PASS", "output": "12/12"}], "confidence": 0.85, "verdict": "PASS"}`
 
 ### Evaluate Verification Result
 
@@ -836,6 +863,8 @@ Run after **EVERY** verification result (both PASS and FAIL), before Step 7.7.
 If the task has `target_repo == "openclaw-multi-agent"` AND `verdict == "PASS"` AND `pr_url` is set:
 
 Self-referential tasks (OCMA improving itself) are auto-merged without user approval. Set `pr_status` to `"merged"` after successful merge.
+
+> **Rollback plan**: For self-referential changes, the PR description MUST include: (1) `git revert <commit-sha>` command for the merge commit, and (2) the last known good commit hash from `main` before merge. This enables instant rollback if the self-deploy breaks the orchestrator.
 
 1. **Auto-merge the PR** (self-referential tasks skip approval):
    ```
@@ -1059,3 +1088,12 @@ If any heartbeat step fails:
    - Run emergency cleanup: delete all clones in `/project/workspaces/.clones/` for completed/failed tasks
    - Retry the write
    - If still fails: pause and alert
+
+### Edge Case Recovery
+
+1. **Stale cycle_lock**: If `Date.parse(cycle_lock.locked_at) + 1800000 < Date.now()` → lock is stale. Clear it (`cycle_lock = null`), write `run_state.json`, log `"Cleared stale lock from {locked_at}"`, then proceed normally.
+   > Example: `locked_at = "2026-03-09T08:00:00Z"`, now = `"2026-03-09T08:45:00Z"` → elapsed = 2700s > 1800s → stale.
+
+2. **Corrupt state file**: `try { JSON.parse(content) } catch { match = content.match(/\{[\s\S]*\}/); if (match) JSON.parse(match[0]); else { set status="paused", pause_reason="Corrupt state: <filename>", alert Slack } }`.
+
+3. **Dependency timeout**: Before calling CLI tools, pre-check availability: `exec("npm ping", timeout=5)` or `exec("pip --version", timeout=5)`. Always pass explicit `--timeout` flags to CLI tools. If pre-check fails, skip task and post: `"⚠️ 도구 의존성 불가: {tool}"`.
