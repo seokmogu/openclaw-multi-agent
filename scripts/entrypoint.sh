@@ -46,12 +46,20 @@ if [ -d "$HOME/.ssh" ] && [ ! -f "$HOME/.ssh/known_hosts" ]; then
   ssh-keyscan -t ed25519 github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
 fi
 
-# ── 5. Workspace Directories ────────────────────────────────────────────────
-# Create writable work directories for agent clones
-mkdir -p /project/workspaces/.repos   # Bare repo cache
-mkdir -p /project/workspaces/.clones  # Active task clones
+# ── 5. Auto-Update CLI Tools ─────────────────────────────────────────────────
+# Update AI CLI tools on every restart (non-blocking, best-effort)
+# OpenClaw itself is updated via base image rebuild (podman-compose build --pull)
+echo "[entrypoint] Checking for CLI tool updates..."
+npm update -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli 2>/dev/null || true
+# Also try OpenClaw self-update (works when installed via npm, not from source)
+openclaw update --yes --no-restart 2>/dev/null || true
+echo "[entrypoint] CLI tools updated"
 
-# ── 6. Cleanup Stale Git State ──────────────────────────────────────────────
+# ── 6. Workspace Directories ────────────────────────────────────────────────
+mkdir -p /project/workspaces/.repos
+mkdir -p /project/workspaces/.clones
+
+# ── 7. Cleanup Stale Git State ──────────────────────────────────────────────
 # Prune orphaned worktrees from any previous crashes
 for repo_dir in /project/workspaces/.repos/*/; do
   if [ -d "$repo_dir" ]; then
