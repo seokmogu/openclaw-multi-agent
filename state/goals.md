@@ -5,12 +5,17 @@ When discovery is enabled, the Orchestrator reads this file to generate improvem
 
 ## Active Goals
 
-- Improve test coverage of agent-recruitment-platform to >80% across all modules
-- Add comprehensive error handling to all API endpoints in agent-recruitment-platform
-- Improve TypeScript type safety in agent-recruitment-platform — eliminate any usage and add strict interfaces
-- Add input validation and sanitization to all agent-recruitment-platform API routes
-- Improve OCMA CLI tool reliability — add unit tests for common.sh, git.sh, gh.sh
-- Improve OCMA HEARTBEAT.md instructions — reduce ambiguity and add examples for complex steps
+- Evolve `agent-recruitment-platform` at the service level: improve deployability, runtime reliability, operational visibility, and user-facing production readiness
+- Prioritize version-upgrade work across OCMA and target services: dependencies, platform/runtime versions, CLI tools, and security patch adoption with rollback-aware plans
+- Generate roadmap tasks that produce meaningful version advancement or service capability improvement, not only local code cleanup
+- Treat code-health work as supporting maintenance only when it clearly unlocks service upgrades, production hardening, or release readiness
+- Keep the human operator in monitor/approval mode: OCMA should discover, propose, execute, and report autonomously; the operator should not be expected to perform the work manually
+- Surface proposed high-impact changes in Slack with clear rationale, expected service impact, and merge/approval prompts when needed
+
+## Notes
+
+- Favor outcomes such as upgrade, migration, rollout safety, observability, release hardening, dependency risk reduction, and production capability improvement
+- Avoid spending the next autonomous cycles on low-impact refactors unless they directly unblock a higher-value service goal
 
 ## Completed Goals
 

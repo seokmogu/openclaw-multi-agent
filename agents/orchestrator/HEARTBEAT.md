@@ -402,10 +402,15 @@ Key design decisions:
 
 ## Step 3: Pick Next Task
 
-Read `/project/state/backlog.json`. Find the first task with `"status": "pending"` (ordered by array position).
+Read `/project/state/backlog.json`. Rank tasks where `"status": "pending"` by impact before selecting work.
 
 - If pending task found:
-  - Set `selected_task` to that first pending task.
+  - Select the pending task with the highest effective priority using this order:
+    1. Higher `priority_score` first when present
+    2. Then priority bucket order: `critical` > `high` > `medium` > `low`
+    3. Then older `created_at` first
+    4. Then existing array order as final tie-break
+  - Set `selected_task` to that highest-ranked pending task.
   - Set `selected_task.status` to `"in_progress"` and `selected_task.assigned_to` to `"orchestrator"`.
   - Write the updated backlog back.
 - If **no pending task** found, run discovery fallback:
@@ -442,15 +447,15 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
 5. Run enabled discovery sources in this order, and stop generating when `generated_tasks.length >= max_auto_tasks`:
    - When a source generates one or more tasks, append its source key (`goals_md`, `critic_patterns`, `verifier_failures`, `code_health`) to `generated_sources` once.
 
-   - **Source 1: goals_md** (if `sources.goals_md.enabled`):
-     - Read `/project/state/goals.md`.
-     - Extract bullet points under `## Active Goals`.
-     - For each goal bullet:
-       - Check backlog for a similar task (simple case-insensitive text similarity against task `title` and `description`).
-       - If no similar task exists, create a new backlog task with:
+    - **Source 1: goals_md** (if `sources.goals_md.enabled`):
+      - Read `/project/state/goals.md`.
+      - Extract bullet points under `## Active Goals`.
+      - For each goal bullet:
+        - Check backlog for a similar task (simple case-insensitive text similarity against task `title` and `description`).
+        - If no similar task exists, create a new backlog task with:
          - `id`: `"auto-{unix_timestamp}-goals_md"`
          - `title`: concise task title derived from the goal
-         - `description`: implementation-oriented expansion of the goal
+          - `description`: implementation-oriented expansion of the goal, biased toward service-level improvements, version upgrades, deployability, observability, or release-readiness impact rather than narrow local cleanup
          - `status`: `"pending"`
          - `priority`: `"medium"`
          - `assigned_to`: `null`
@@ -461,8 +466,8 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
          - `fast_path`: `false`
          - `generated_by`: `"discovery:goals_md"`
          - `source_task_id`: `null`
-         - `learning_tags`: `["goals", "auto-discovery"]`
-         - `priority_score`: `0.7`
+          - `learning_tags`: `["goals", "service-evolution", "auto-discovery"]`
+          - `priority_score`: `0.8`
 
    - **Source 2: critic_patterns** (if `sources.critic_patterns.enabled`):
      - Read `/project/state/learning_log.json`.
@@ -490,17 +495,20 @@ Read `/project/state/backlog.json`. Find the first task with `"status": "pending
      - For learning entries used to generate these tasks, set `applied: true`.
      - Write updated `/project/state/learning_log.json`.
 
-   - **Source 4: code_health** (if `sources.code_health.enabled`):
-     - From backlog, collect unique `target_repo` values from tasks where `status == "completed"`.
-     - For each repo, create a code health task to run linting/testing with:
-       - `id`: `"auto-{unix_timestamp}-code_health"`
-       - `generated_by`: `"discovery:code_health"`
-       - `priority_score`: `0.5`
-       - `fast_path`: `false`
-       - `source_task_id`: `null`
-       - `learning_tags`: `["code-health", "maintenance", "auto-discovery"]`
-       - `target_repo`: completed task repo
-       - `github_repo`: corresponding repo if known
+    - **Source 4: code_health** (if `sources.code_health.enabled`):
+      - From backlog, collect unique `target_repo` values from tasks where `status == "completed"`.
+      - For each repo, create a code health task only as maintenance support work when it is likely to unlock or validate a higher-value service/version goal.
+      - Do not let code-health tasks crowd out service-evolution or version-upgrade work in the same discovery cycle.
+      - Use descriptions that explicitly connect the scan to release readiness, upgrade safety, or production hardening.
+      - Create tasks with:
+        - `id`: `"auto-{unix_timestamp}-code_health"`
+        - `generated_by`: `"discovery:code_health"`
+        - `priority_score`: `0.4`
+        - `fast_path`: `false`
+        - `source_task_id`: `null`
+        - `learning_tags`: `["code-health", "maintenance", "auto-discovery"]`
+        - `target_repo`: completed task repo
+        - `github_repo`: corresponding repo if known
 
 6. Apply safety rules before writing any generated task:
    - Apply `safety.max_auto_priority` cap to each `priority_score` (example: `min(priority_score, safety.max_auto_priority)`, with configured cap `0.9`).
