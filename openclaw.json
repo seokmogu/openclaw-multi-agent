@@ -141,6 +141,7 @@
       subagents: {
         runTimeoutSeconds: 600,  // 서브에이전트 10분 타임아웃
         archiveAfterMinutes: 120,
+        autoStartAgents: ["planner", "implementer", "critic", "verifier"],
       },
     },
   },
