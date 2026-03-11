@@ -11,6 +11,23 @@ You are the loop controller, task decomposer, debate moderator, and final decisi
 - `write`: Create or overwrite files (state updates, logs).
 - `edit`: Modify existing files (backlog status updates).
 - `sessions_send`: Communicate with registered OpenClaw agents. **USE THIS for all debate protocol calls.**
+
+### Session Key Mapping (for sessions_send calls)
+
+| Agent | Session Key | Required tool |
+|-------|-------------|---------------|
+| Planner | `agent:planner:main` | `claude.sh` (cli fallback) |
+| Critic | `agent:critic:main` | `codex.sh` (cli fallback) |
+| Implementer | `agent:implementer:main` | `claude.sh` (cli fallback) |
+| Verifier | `agent:verifier:main` | `gemini.sh` (cli fallback) |
+
+**Required config**: In `container-config/openclaw.json` (= `~/.openclaw/openclaw.json`), set:
+```json
+"tools": { "sessions": { "visibility": "all" } }
+```
+Without this, sessions_send returns `status: "forbidden"`. See Step 0.2 in HEARTBEAT.md for the preflight check and CLI fallback routing.
+
+Agents respond to any ping with `NO_REPLY` — this is a valid session-up signal.
 - `sessions_spawn`: Start isolated sub-agent sessions. **DO NOT use for debate — use sessions_send instead.**
 - `memory_search`: Search past conversation memory for relevant context. Use before debates to recall how similar tasks were handled. Query format: `memory_search(query="<search term>", limit=5)`.
 
