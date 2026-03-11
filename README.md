@@ -4,6 +4,7 @@
 OCMA는 5개의 AI 에이전트가 협력하여 코드를 자동 생성하고 관리하는 자가발전형 시스템입니다. Orchestrator, Planner, Critic, Implementer, Verifier가 토론, 구현, 검증 과정을 거쳐 GitHub PR까지 자동으로 만듭니다.
 
 - **5개 AI 에이전트 협업**: claude-opus-4-6, claude-sonnet-4-6, gpt-5.4 모델을 조합하여 결과물을 만듭니다.
+- **에이전트 자동 기동**: `openclaw.json`의 `agents.defaults.subagents.autoStartAgents` 설정으로 Planner/Implementer/Critic/Verifier 세션을 미리 띄워 debate 단계의 세션 부재 실패를 줄입니다.
 - **인증 방식**: API 키를 직접 쓰지 않고 OAuth 및 로그인 세션 기반 인증을 사용합니다.
 - **완전 격리**: Podman 컨테이너 환경에서 실행되어 호스트 시스템과 분리됩니다.
 - **자가발전(Self-evolution)**: 백로그가 비어있을 때 `goals.md`를 분석하여 새로운 태스크를 스스로 찾습니다.

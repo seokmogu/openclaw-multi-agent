@@ -115,12 +115,15 @@ do_version_check() {
     # Check npm outdated for CLI tools
     set +e
     npm outdated -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli 2>/dev/null > "$_tmpfile"
+    _npm_outdated_exit=$?
     set -e
 
     if [ -s "$_tmpfile" ]; then
         _updates_available=1
         log_info "Task ${CLI_TASK_ID}: Updates available:"
         cat "$_tmpfile" >&2
+    elif [ "$_npm_outdated_exit" -ne 0 ] && [ "$_npm_outdated_exit" -ne 1 ]; then
+        log_warn "Task ${CLI_TASK_ID}: npm outdated returned exit ${_npm_outdated_exit}; treating as check failure, not available update"
     else
         log_info "Task ${CLI_TASK_ID}: All CLI tools are up to date"
     fi
