@@ -235,6 +235,34 @@ Run this quick pre-flight before Step 1:
      - Append to `/project/state/decision_log.md`: `"Priority capped from {original} to {max}"`.
      - Write updated `/project/state/backlog.json`.
 
+## Step 0.2: Agent Session Preflight
+
+Before the debate phase, verify cross-agent sessions_send availability.
+
+**Required config**: `tools.sessions.visibility` must be `"all"` in `container-config/openclaw.json` (or `~/.openclaw/openclaw.json`). The root `openclaw.json` template is the source of truth.
+
+**Preflight check** (run only when status is "running"):
+1. Send `sessions_send(sessionKey="agent:planner:main", message="PING", timeoutSeconds=8)`
+2. Send `sessions_send(sessionKey="agent:implementer:main", message="PING", timeoutSeconds=8)`
+3. If either returns `status: "forbidden"` or `status: "error"` or times out:
+   - Set `debate_mode = "cli"` (applies to entire cycle)
+   - Post to Slack: `"⚠️ 에이전트 세션 비가용: CLI 폴백 모드로 전환. tools.sessions.visibility='all' 확인 필요."`
+4. If both return `status: "ok"` (NO_REPLY is a valid reply from agents): `debate_mode = "sessions_send"`
+
+**CLI fallback routing** (when `debate_mode = "cli"`):
+| Role | Session key | CLI fallback |
+|------|-------------|--------------|
+| Planner | `agent:planner:main` | `/project/tools/cli/claude.sh` |
+| Critic | `agent:critic:main` | `/project/tools/cli/codex.sh` |
+| Implementer | `agent:implementer:main` | `/project/tools/cli/claude.sh` |
+| Verifier | `agent:verifier:main` | `/project/tools/cli/gemini.sh` |
+
+In CLI fallback mode, replace all `sessions_send(sessionKey=..., message=...)` calls with:
+```
+exec(command="/project/tools/cli/<tool>.sh --prompt \"<full prompt with role + task>\" --task-id \"<task-id>\" --timeout 120")
+```
+Parse stdout as JSON (same contract applies).
+
 ## Step 0.5: Cycle Lock Check
 
 Read `/project/state/run_state.json`.

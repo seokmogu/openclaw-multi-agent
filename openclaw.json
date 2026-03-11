@@ -94,7 +94,7 @@
       allow: ["orchestrator", "planner", "implementer", "critic", "verifier"],
     },
     sessions: {
-      visibility: "agent",
+      visibility: "all",
     },
   },
 
