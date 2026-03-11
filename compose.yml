@@ -72,7 +72,7 @@ services:
       # CLI credential dirs from host (read-only)
       - ${HOME}/.claude.json:/home/node/.claude.json:ro
       - ${HOME}/.claude:/home/node/.claude:ro
-      - ${HOME}/.codex:/home/node/.codex:ro
+      - ${HOME}/.codex:/home/node/.codex:rw
       - ${HOME}/.gemini:/home/node/.gemini:rw
 
       # Host project repos (read-only reference)
