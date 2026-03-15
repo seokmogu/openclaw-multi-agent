@@ -3,10 +3,5 @@
   "last_restart_at": null,
   "restart_reason": null,
   "last_successful_cycle_at": null,
-  "tool_versions": {
-    "@anthropic-ai/claude-code": "2.1.71",
-    "@openai/codex": "0.111.0",
-    "@google/gemini-cli": "0.32.1",
-    "openclaw": "2026.3.7"
-  }
+  "tool_versions": {}
 }

@@ -18,7 +18,7 @@ fi
 
 # ── 2. Git Global Config ────────────────────────────────────────────────────
 git config --global user.name "${GIT_AUTHOR_NAME:-OCMA Bot}"
-git config --global user.email "${GIT_AUTHOR_EMAIL:-ocma-bot@seokmogu.dev}"
+git config --global user.email "${GIT_AUTHOR_EMAIL:-ocma-bot@users.noreply.github.com}"
 git config --global init.defaultBranch main
 git config --global gc.auto 0
 git config --global gc.autodetach false

@@ -1,29 +1,4 @@
 {
   "max_entries": 200,
-  "entries": [
-    {
-      "cycle_id": "task-arp-001",
-      "timestamp": "2026-03-08T14:43:00Z",
-      "debate_epochs": 1,
-      "debate_wall_time_sec": 360,
-      "convergence_achieved": true,
-      "tiebreak_used": false,
-      "verification_verdict": "PASS",
-      "verification_confidence": 0.92,
-      "retry_count": 1,
-      "total_cycle_time_sec": 1020
-    },
-    {
-      "cycle_id": "task-ocma-002",
-      "timestamp": "2026-03-08T23:15:00Z",
-      "debate_epochs": 1,
-      "debate_wall_time_sec": 300,
-      "convergence_achieved": true,
-      "tiebreak_used": false,
-      "verification_verdict": "PASS",
-      "verification_confidence": 0.95,
-      "retry_count": 0,
-      "total_cycle_time_sec": 510
-    }
-  ]
+  "entries": []
 }

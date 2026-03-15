@@ -42,7 +42,7 @@ GitHub Repos (clone → branch → implement → PR)
 ```
 
 ## 빠른 시작
-현재 저장소는 **즉시 실행 가능한 완성형 배포본이라기보다, 런타임 파일 일부를 사용자가 로컬에서 준비하는 구조**입니다. 특히 `.env.example`와 `container-config/`는 커밋되지 않으므로 아래 절차대로 직접 만들어야 합니다.
+현재 저장소는 **즉시 실행 가능한 완성형 배포본이라기보다, 런타임 파일 일부를 사용자가 로컬에서 준비하는 구조**입니다. `container-config/`는 커밋되지 않으므로 아래 절차대로 직접 만들어야 합니다.
 
 ### 0. 사전 요구사항
 - 호스트에 `podman` 또는 Docker 호환 `podman-compose`가 설치되어 있어야 합니다.
@@ -60,18 +60,23 @@ git clone https://github.com/seokmogu/openclaw-multi-agent.git
 cd openclaw-multi-agent
 ```
 
-### 2. `.env` 직접 생성
-이 저장소에는 `.env.example`가 포함되어 있지 않습니다. 필요한 변수만 직접 `.env` 파일로 만드세요.
+### 2. `.env` 생성
+`.env.example`를 복사해서 시작하세요.
 
 ```bash
-cat > .env <<'EOF'
-GH_TOKEN=ghp_xxx
+cp .env.example .env
+```
+
+필요하면 직접 수정:
+
+```bash
+GH_TOKEN=
 OPENCLAW_GATEWAY_TOKEN=replace-me
 HOST_GATEWAY_PORT=19789
 SLACK_BOT_TOKEN=
 SLACK_APP_TOKEN=
 GOOGLE_API_KEY=
-EOF
+EXTRA_CA_CERT_PATH=
 ```
 
 최소 필수값:
@@ -82,6 +87,7 @@ EOF
 - `HOST_GATEWAY_PORT`
 - `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`
 - `GOOGLE_API_KEY`
+- `EXTRA_CA_CERT_PATH` (사내/프록시 환경에서 커스텀 CA 번들이 필요한 경우)
 
 ### 3. `container-config/` 생성
 `compose.yml`은 `./container-config:/home/node/.openclaw` 마운트를 전제로 합니다. 따라서 아래처럼 디렉터리를 만들고 루트의 `openclaw.json`을 복사해 사용하세요.
@@ -199,8 +205,9 @@ openclaw-multi-agent/
 ```
 
 주의:
-- `container-config/`와 `.env`는 **저장소에 포함되지 않는 로컬 런타임 산출물**입니다.
-- README의 예시 명령을 실행하기 전에 직접 생성해야 합니다.
+- `container-config/`와 `.env`는 **로컬 런타임 산출물**입니다.
+- `.env.example`는 커밋되어 있지만 실제 `.env`는 직접 생성해야 합니다.
+- README의 예시 명령을 실행하기 전에 `container-config/`는 직접 생성해야 합니다.
 
 ## 설정
 시스템 동작을 위해 다음 설정이 필요합니다.
@@ -213,7 +220,8 @@ openclaw-multi-agent/
 
 참고:
 - README에 언급된 일부 설정/경로는 **로컬에서 생성되는 파일**을 전제로 합니다.
-- 즉, fresh clone 직후에는 `.env`, `container-config/`가 없는 것이 정상입니다.
+- fresh clone 직후에는 `.env`, `container-config/`가 없는 것이 정상입니다.
+- `.env.example`는 예시 템플릿일 뿐이며, 실제 인증 정보는 `.env`에만 넣어야 합니다.
 
 ## 인증
 보안을 위해 API 키 대신 세션 기반 인증을 우선합니다.
@@ -245,8 +253,8 @@ cat state/backlog.json | python3 -m json.tool
 ## 트러블슈팅
 자주 발생하는 문제와 해결 방법입니다.
 
-- **`cp .env.example .env`가 실패함**: 현재 저장소에는 `.env.example`가 없습니다. README의 `.env` 직접 생성 절차를 사용하세요.
 - **컨테이너가 `container-config` 관련 에러로 시작 실패함**: `mkdir -p container-config && cp openclaw.json container-config/openclaw.json`를 먼저 실행하세요.
+- **커스텀 CA 파일이 없어 마운트 실패함**: `EXTRA_CA_CERT_PATH`를 비우거나, 기본값(`/etc/ssl/certs/ca-certificates.crt`)을 사용하세요.
 - **`podman-compose` 명령이 없음**: 호스트에 Podman/Compose 계열 도구가 설치되어 있는지 확인하세요.
 - **호스트 스크립트(`scripts/start.sh`)가 실패함**: 호스트에 `openclaw` CLI가 설치되어 있는지 확인하세요.
 - **GitHub 토큰 만료**: `.env` 파일을 갱신한 후 `podman-compose restart`를 실행하세요.
