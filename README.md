@@ -42,29 +42,80 @@ GitHub Repos (clone → branch → implement → PR)
 ```
 
 ## 빠른 시작
+현재 저장소는 **즉시 실행 가능한 완성형 배포본이라기보다, 런타임 파일 일부를 사용자가 로컬에서 준비하는 구조**입니다. 특히 `.env.example`와 `container-config/`는 커밋되지 않으므로 아래 절차대로 직접 만들어야 합니다.
+
+### 0. 사전 요구사항
+- 호스트에 `podman` 또는 Docker 호환 `podman-compose`가 설치되어 있어야 합니다.
+- 호스트에 `openclaw` CLI가 설치되어 있어야 합니다.
+- GitHub 작업을 하려면 `GH_TOKEN`이 필요합니다.
+- 모델 인증은 API key 대신 **호스트 로그인/OAuth 상태**를 마운트해서 사용합니다.
+  - Claude Code: `~/.claude`, `~/.claude.json`
+  - Codex CLI: `~/.codex`
+  - Gemini CLI: `~/.gemini`
+  - GitHub CLI auth: `~/.config/gh`
+
+### 1. 저장소 복제
 ```bash
-# 1. 저장소 복제
 git clone https://github.com/seokmogu/openclaw-multi-agent.git
 cd openclaw-multi-agent
+```
 
-# 2. 환경 변수 설정
-cp .env.example .env
-# GH_TOKEN, OPENCLAW_GATEWAY_TOKEN, Slack 토큰 등을 설정하세요.
+### 2. `.env` 직접 생성
+이 저장소에는 `.env.example`가 포함되어 있지 않습니다. 필요한 변수만 직접 `.env` 파일로 만드세요.
 
-# 3. 빌드 및 실행
+```bash
+cat > .env <<'EOF'
+GH_TOKEN=ghp_xxx
+OPENCLAW_GATEWAY_TOKEN=replace-me
+HOST_GATEWAY_PORT=19789
+SLACK_BOT_TOKEN=
+SLACK_APP_TOKEN=
+GOOGLE_API_KEY=
+EOF
+```
+
+최소 필수값:
+- `OPENCLAW_GATEWAY_TOKEN`
+- `GH_TOKEN` (GitHub clone/push/PR 자동화 시)
+
+선택값:
+- `HOST_GATEWAY_PORT`
+- `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`
+- `GOOGLE_API_KEY`
+
+### 3. `container-config/` 생성
+`compose.yml`은 `./container-config:/home/node/.openclaw` 마운트를 전제로 합니다. 따라서 아래처럼 디렉터리를 만들고 루트의 `openclaw.json`을 복사해 사용하세요.
+
+```bash
+mkdir -p container-config
+cp openclaw.json container-config/openclaw.json
+```
+
+필요하면 `container-config/` 아래에 프로파일별 추가 설정 파일을 넣어도 됩니다.
+
+### 4. 빌드 및 실행
+```bash
 podman-compose build
 podman-compose up -d
+```
 
-# 4. 상태 확인
+### 5. 상태 확인
+```bash
 podman ps
 podman exec ocma-gateway openclaw --version
+podman logs --tail 50 ocma-gateway
+```
 
-# 5. 백로그에 태스크 추가
-# state/backlog.json 파일에 pending 상태의 태스크를 추가합니다.
+### 6. 백로그에 태스크 추가
+`state/backlog.json` 파일에 `pending` 상태의 태스크를 추가합니다.
 
-# 6. 사이클 시작
+### 7. 사이클 시작
+```bash
 podman exec ocma-gateway openclaw system event --mode now --text "start cycle"
 ```
+
+### 8. 호스트 기반 관리 스크립트 사용 시
+`scripts/start.sh` / `scripts/status.sh` / `scripts/stop.sh`는 **호스트에 `openclaw` CLI가 설치되어 있을 때** 사용하는 보조 스크립트입니다. 컨테이너만 띄우는 경로와 달리, 호스트 OpenClaw 프로파일/cron/gateway를 함께 다룹니다.
 
 ## 이벤트 드리븐 아키텍처
 시스템은 이벤트 기반으로 동작하며 효율적으로 자원을 관리합니다.
@@ -118,49 +169,51 @@ Planner와 Critic 사이의 토론은 엄격한 규칙에 따라 진행됩니다
 - **metrics.json**: 각 사이클의 성능 지표를 기록합니다.
 
 ## 프로젝트 구조
-```
+```text
 openclaw-multi-agent/
 ├── compose.yml                    # Podman Compose 설정
 ├── Containerfile                  # 컨테이너 이미지 빌드
-├── .env                           # 시크릿 (gitignored)
-├── container-config/              # OpenClaw 설정 (volume mount, gitignored)
-│   └── openclaw.json
+├── openclaw.json                  # 기본 OpenClaw 설정 템플릿
+├── .env                           # 로컬 시크릿 (직접 생성, gitignored)
+├── container-config/              # 로컬 OpenClaw 런타임 설정 (직접 생성, gitignored)
+│   └── openclaw.json              # 보통 루트 openclaw.json을 복사해서 사용
 ├── agents/
 │   ├── orchestrator/
-│   │   ├── AGENTS.md              # 에이전트 지시사항
-│   │   └── HEARTBEAT.md           # 오케스트레이션 사이클 (22 steps)
-│   ├── planner/AGENTS.md
-│   ├── implementer/AGENTS.md
-│   ├── critic/AGENTS.md
-│   └── verifier/AGENTS.md
+│   │   ├── AGENTS.md
+│   │   ├── HEARTBEAT.md
+│   │   └── SOUL.md
+│   ├── planner/
+│   ├── implementer/
+│   ├── critic/
+│   └── verifier/
 ├── scripts/
-│   ├── entrypoint.sh              # 컨테이너 초기화 및 CLI 자동 업데이트
-│   ├── status.sh                  # 시스템 상태 확인
+│   ├── entrypoint.sh              # 컨테이너 초기화 엔트리포인트
+│   ├── start.sh                   # 호스트 openclaw 기반 시작 스크립트
+│   ├── status.sh                  # 상태 확인 스크립트
+│   ├── stop.sh                    # 중지 스크립트
 │   └── patch-gpt54.py             # GPT-5.4 모델 패치
-├── state/                          # 런타임 상태 (volume mount)
-│   ├── run_state.json
-│   ├── backlog.json
-│   ├── decision_log.md
-│   ├── discovery_config.json
-│   ├── goals.md
-│   ├── learning_log.json
-│   ├── metrics.json
-│   └── debate_config.json
-├── tools/cli/                      # CLI 래퍼 (volume mount, read-only)
-│   ├── common.sh                   # 재시도, 타임아웃, 토큰 체크
-│   ├── git.sh                      # 복제, 브랜치, 커밋, 푸시
-│   └── gh.sh                       # PR 생성 및 상태 확인
-└── workspaces/                     # 에이전트 작업 공간 (gitignored)
-    ├── .repos/                     # 베어 저장소 캐시
-    └── .clones/                    # 태스크별 복제본
+├── skills/                        # 프로젝트 전용 스킬
+├── state/                         # 버전 관리되는 기본 상태 파일 + 런타임 상태
+├── tools/cli/                     # CLI 래퍼 및 테스트
+└── workspaces/                    # 에이전트 작업 공간 (gitignored)
 ```
+
+주의:
+- `container-config/`와 `.env`는 **저장소에 포함되지 않는 로컬 런타임 산출물**입니다.
+- README의 예시 명령을 실행하기 전에 직접 생성해야 합니다.
 
 ## 설정
 시스템 동작을 위해 다음 설정이 필요합니다.
 
-- **.env 필수 변수**: `GH_TOKEN`, `OPENCLAW_GATEWAY_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`이 반드시 설정되어야 합니다.
-- **container-config/openclaw.json**: 에이전트 정의, 모델 설정, 세션 정보를 관리합니다.
-- **state/debate_config.json**: 최대 Epoch 횟수와 수렴 임계값 등을 설정합니다.
+- **`.env` 필수 변수**: 최소한 `OPENCLAW_GATEWAY_TOKEN`은 필요합니다.
+- **GitHub 자동화 사용 시**: `GH_TOKEN`이 필요합니다.
+- **Slack 연동 사용 시**: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`을 설정합니다.
+- **`container-config/openclaw.json`**: `compose.yml`이 마운트하는 실제 런타임 설정 파일입니다. 일반적으로 루트 `openclaw.json`을 복사해서 시작합니다.
+- **`state/debate_config.json`**: 최대 Epoch 횟수와 수렴 임계값 등을 설정합니다.
+
+참고:
+- README에 언급된 일부 설정/경로는 **로컬에서 생성되는 파일**을 전제로 합니다.
+- 즉, fresh clone 직후에는 `.env`, `container-config/`가 없는 것이 정상입니다.
 
 ## 인증
 보안을 위해 API 키 대신 세션 기반 인증을 우선합니다.
@@ -192,7 +245,10 @@ cat state/backlog.json | python3 -m json.tool
 ## 트러블슈팅
 자주 발생하는 문제와 해결 방법입니다.
 
-- **컨테이너 시작 실패**: `podman-compose logs` 명령으로 에러 메시지를 확인하세요.
+- **`cp .env.example .env`가 실패함**: 현재 저장소에는 `.env.example`가 없습니다. README의 `.env` 직접 생성 절차를 사용하세요.
+- **컨테이너가 `container-config` 관련 에러로 시작 실패함**: `mkdir -p container-config && cp openclaw.json container-config/openclaw.json`를 먼저 실행하세요.
+- **`podman-compose` 명령이 없음**: 호스트에 Podman/Compose 계열 도구가 설치되어 있는지 확인하세요.
+- **호스트 스크립트(`scripts/start.sh`)가 실패함**: 호스트에 `openclaw` CLI가 설치되어 있는지 확인하세요.
 - **GitHub 토큰 만료**: `.env` 파일을 갱신한 후 `podman-compose restart`를 실행하세요.
 - **사이클 멈춤 현상**: `run_state.json`의 `cycle_lock`이 남아있는지 확인하고 필요하면 `null`로 초기화하세요.
 - **토론 타임아웃**: `runTimeoutSeconds` 설정을 확인하세요. 기본값은 1800초입니다.
