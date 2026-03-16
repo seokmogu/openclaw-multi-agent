@@ -96,6 +96,64 @@ with open(sf, 'w') as f: json.dump(state, f, indent=2)
 print('[entrypoint] Tool versions: ' + ', '.join(f'{k.split(\"/\")[-1]}={v}' for k,v in versions.items()))
 " 2>/dev/null || echo "[entrypoint] WARNING: Failed to record tool versions"
 
+# ── 5.7. Cloud Credential Validation ────────────────────────────────────────
+echo "[entrypoint] Checking cloud provider credentials..."
+_infra_ok=0
+_infra_total=0
+
+# AWS
+if [ -n "${AWS_ROLE_ARN:-}" ] || [ -f "$HOME/.aws/credentials" ]; then
+  _infra_total=$((_infra_total + 1))
+  if aws sts get-caller-identity >/dev/null 2>&1; then
+    _aws_account=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+    echo "[entrypoint] AWS: connected (account: ${_aws_account})"
+    _infra_ok=$((_infra_ok + 1))
+  else
+    echo "[entrypoint] WARNING: AWS credentials configured but validation failed"
+  fi
+fi
+
+# GCP
+if [ -n "${GCP_PROJECT_ID:-}" ] || [ -f "$HOME/.config/gcloud/application_default_credentials.json" ]; then
+  _infra_total=$((_infra_total + 1))
+  if gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | head -1 | grep -q '.'; then
+    _gcp_project=$(gcloud config get project 2>/dev/null || echo "unknown")
+    echo "[entrypoint] GCP: connected (project: ${_gcp_project})"
+    _infra_ok=$((_infra_ok + 1))
+  else
+    echo "[entrypoint] WARNING: GCP credentials configured but validation failed"
+  fi
+fi
+
+# Vercel
+if [ -n "${VERCEL_TOKEN:-}" ]; then
+  _infra_total=$((_infra_total + 1))
+  if vercel whoami --token "${VERCEL_TOKEN}" >/dev/null 2>&1; then
+    _vercel_user=$(vercel whoami --token "${VERCEL_TOKEN}" 2>/dev/null || echo "unknown")
+    echo "[entrypoint] Vercel: connected (user: ${_vercel_user})"
+    _infra_ok=$((_infra_ok + 1))
+  else
+    echo "[entrypoint] WARNING: VERCEL_TOKEN set but validation failed"
+  fi
+fi
+
+# Supabase
+if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+  _infra_total=$((_infra_total + 1))
+  if supabase projects list 2>/dev/null | grep -q '.'; then
+    echo "[entrypoint] Supabase: connected"
+    _infra_ok=$((_infra_ok + 1))
+  else
+    echo "[entrypoint] WARNING: SUPABASE_ACCESS_TOKEN set but validation failed"
+  fi
+fi
+
+if [ "$_infra_total" -gt 0 ]; then
+  echo "[entrypoint] Cloud providers: ${_infra_ok}/${_infra_total} validated"
+else
+  echo "[entrypoint] No cloud providers configured (optional)"
+fi
+
 # ── 6. Workspace Directories ────────────────────────────────────────────────
 mkdir -p /project/workspaces/.repos
 mkdir -p /project/workspaces/.clones

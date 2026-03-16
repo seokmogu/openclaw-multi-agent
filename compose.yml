@@ -1,10 +1,14 @@
-# OpenClaw Multi-Agent Service Implementation System — Podman Compose
+# OpenClaw Multi-Agent — Docker Compose / Podman Compose
 #
 # 사용법:
-#   podman-compose up -d        # 시작
-#   podman-compose logs -f      # 로그 확인
-#   podman-compose down         # 중지
-#   podman-compose exec gateway openclaw channels status  # 채널 상태
+#   docker compose up -d        # 시작 (Docker)
+#   podman-compose up -d        # 시작 (Podman)
+#   docker compose logs -f      # 로그 확인 (Docker)
+#   podman-compose logs -f      # 로그 확인 (Podman)
+#   docker compose down         # 중지 (Docker)
+#   podman-compose down         # 중지 (Podman)
+#   docker compose exec gateway openclaw channels status   # 채널 상태 (Docker)
+#   podman-compose exec gateway openclaw channels status   # 채널 상태 (Podman)
 #
 # 포트 격리:
 #   컨테이너 내부는 항상 18789. 호스트 포트는 .env의 HOST_GATEWAY_PORT로 변경.
@@ -55,6 +59,19 @@ services:
       ANTHROPIC_API_KEY: ""
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
 
+      # Cloud infrastructure (optional)
+      AWS_ROLE_ARN: ${AWS_ROLE_ARN:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-northeast-2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      VERCEL_TOKEN: ${VERCEL_TOKEN:-}
+      VERCEL_TEAM_ID: ${VERCEL_TEAM_ID:-}
+      SUPABASE_ACCESS_TOKEN: ${SUPABASE_ACCESS_TOKEN:-}
+      SUPABASE_PROJECT_REF: ${SUPABASE_PROJECT_REF:-}
+
     volumes:
       # OpenClaw config + agent state
       - ./container-config:/home/node/.openclaw
@@ -85,6 +102,9 @@ services:
       - ${HOME}/.config/gh:/home/node/.config/gh:ro
       # SSH keys (read-only — fallback auth for git push)
       - ${HOME}/.ssh:/home/node/.ssh:ro
+      # Cloud CLI configs from host (optional, read-only)
+      - ${HOME}/.aws:/home/node/.aws:ro
+      - ${HOME}/.config/gcloud:/home/node/.config/gcloud:ro
 
     ports:
       - "${HOST_GATEWAY_PORT:-19789}:18789"
