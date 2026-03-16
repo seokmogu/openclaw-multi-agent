@@ -1,6 +1,6 @@
 {
-  "max_epochs": 2,
-  "convergence_threshold": 0.9,
+  "max_epochs": 3,
+  "convergence_threshold": 0.75,
   "epoch_summary_max_tokens": 500,
   "anti_loop_enabled": true,
   "tiebreak_strategy": "lowest_risk",
@@ -73,7 +73,7 @@
   },
   "git": {
     "branch_prefix": "ocma",
-    "always_draft_pr": false,
+    "always_draft_pr": true,
     "max_clone_age_hours": 24,
     "lease_ttl_seconds": 3600,
     "cleanup_on_complete": true,
@@ -86,10 +86,10 @@
     "auto_merge_method": "squash"
   },
   "auto_merge": {
-    "enabled": true,
+    "enabled": false,
     "require_pass": true,
     "require_tests": true,
-    "comment": "Auto-merge all PASS-verified PRs. No user approval needed."
+    "comment": "Enable after validating system on your target repos. Use /ocma auto-merge to toggle."
   },
   "pr_batching": {
     "enabled": true,

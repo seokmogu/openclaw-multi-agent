@@ -1,20 +1,7 @@
 {
   "restart_count": 0,
-  "last_restart_at": "2026-03-11T16:39:39Z",
-  "restart_reason": "user_stop",
-  "last_successful_cycle_at": "2026-03-11T16:53:12Z",
-  "tool_versions": {
-    "@anthropic-ai/claude-code": "2.1.71",
-    "@openai/codex": "0.111.0",
-    "@google/gemini-cli": "0.32.1",
-    "openclaw": "2026.3.7"
-  },
-  "pending_npm_update": true,
-  "pending_packages": [
-    "@anthropic-ai/claude-code@2.1.72",
-    "@google/gemini-cli@0.33.0",
-    "@openai/codex@0.114.0"
-  ],
-  "last_update_check": "2026-03-11T09:43:09Z",
-  "note": "All tasks stopped by user. npm update deferred."
+  "last_restart_at": null,
+  "restart_reason": null,
+  "last_successful_cycle_at": null,
+  "tool_versions": {}
 }

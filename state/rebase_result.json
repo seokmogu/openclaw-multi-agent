@@ -1,5 +1,0 @@
-{
-  "merged": [38, 39, 41, 42, 29, 31, 33],
-  "failed": [],
-  "notes": "All 7 PRs successfully rebased onto main and squash-merged via cycle-100. Conflicts resolved by accepting PR branch changes in all cases. ARP: PR#38 (HNSW+OpenAPI), PR#39 (Redis cache), PR#41 (match explainability), PR#42 (profile completeness). AlbaConnect: PR#29 (KakaoTalk Alim Talk), PR#31 (dispute resolution), PR#33 (phone OTP). PRs #38, #41, #42, #29 required a short retry delay before merge API accepted the squash-merge."
-}

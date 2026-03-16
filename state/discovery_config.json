@@ -21,7 +21,7 @@
   "safety": {
     "max_auto_priority": 0.9,
     "max_consecutive_failures_before_disable": 5,
-    "no_self_referential_tasks": false,
+    "no_self_referential_tasks": true,
     "duplicate_detection": true,
     "require_user_approval_above_priority": 1.1
   },
