@@ -4,13 +4,8 @@
   "active_clones": [],
   "branches": [],
   "pull_requests": [],
-  "last_cleanup": null,
+  "last_cleanup": "2026-03-13T23:47:00Z",
   "schema_version": 1,
-  "_doc": {
-    "active_leases": "Map of 'repo:task-id' -> {agent, started_at, ttl_seconds}. Only one active lease per repo.",
-    "cached_repos": "Array of {repo_name, github_repo, bare_path, last_fetched}. Bare clone cache.",
-    "active_clones": "Array of {task_id, repo_name, clone_path, branch_name, created_at}. Working clones.",
-    "branches": "Array of {task_id, repo_name, branch_name, github_repo, status}. Tracked branches.",
-    "pull_requests": "Array of {task_id, repo_name, pr_number, pr_url, status, created_at}. Tracked PRs."
-  }
+  "last_updated": "2026-03-15T20:31:56Z",
+  "open_prs": []
 }

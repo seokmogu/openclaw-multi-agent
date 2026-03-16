@@ -4,7 +4,7 @@
 OCMA는 5개의 AI 에이전트가 협력하여 코드를 자동 생성하고 관리하는 자가발전형 시스템입니다. Orchestrator, Planner, Critic, Implementer, Verifier가 토론, 구현, 검증 과정을 거쳐 GitHub PR까지 자동으로 만듭니다.
 
 - **5개 AI 에이전트 협업**: claude-opus-4-6, claude-sonnet-4-6, gpt-5.4 모델을 조합하여 결과물을 만듭니다.
-- **에이전트 자동 기동**: `openclaw.json`의 `agents.defaults.subagents.autoStartAgents` 설정으로 Planner/Implementer/Critic/Verifier 세션을 미리 띄워 debate 단계의 세션 부재 실패를 줄입니다.
+- **서브에이전트 타임아웃**: `container-config/openclaw.json`의 `agents.defaults.subagents.runTimeoutSeconds`로 긴 작업 타임아웃을 조정합니다.
 - **인증 방식**: API 키를 직접 쓰지 않고 OAuth 및 로그인 세션 기반 인증을 사용합니다.
 - **완전 격리**: Podman 컨테이너 환경에서 실행되어 호스트 시스템과 분리됩니다.
 - **자가발전(Self-evolution)**: 백로그가 비어있을 때 `goals.md`를 분석하여 새로운 태스크를 스스로 찾습니다.
@@ -260,7 +260,7 @@ cat state/backlog.json | python3 -m json.tool
 - **GitHub 토큰 만료**: `.env` 파일을 갱신한 후 `podman-compose restart`를 실행하세요.
 - **사이클 멈춤 현상**: `run_state.json`의 `cycle_lock`이 남아있는지 확인하고 필요하면 `null`로 초기화하세요.
 - **토론 타임아웃**: `runTimeoutSeconds` 설정을 확인하세요. 기본값은 1800초입니다.
-- **HEARTBEAT.md 잘림**: `bootstrapMaxChars` 설정을 늘리세요. 기본값은 50000입니다.
+- **HEARTBEAT.md 잘림**: `bootstrapMaxChars` 설정을 늘리세요. 현재 기본값은 70000입니다.
 
 ## 라이선스
 MIT

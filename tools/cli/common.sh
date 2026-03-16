@@ -7,8 +7,8 @@ set -e
 # ─── Configuration ───────────────────────────────────────────────────────────
 PROJECT_ROOT="${PROJECT_ROOT:-/project}"
 STATE_DIR="${PROJECT_ROOT}/state"
-MAX_OUTPUT="${MAX_OUTPUT:-50000}"
-DEFAULT_TIMEOUT="${DEFAULT_TIMEOUT:-600}"
+MAX_OUTPUT="${MAX_OUTPUT:-0}"
+DEFAULT_TIMEOUT="${DEFAULT_TIMEOUT:-0}"
 
 # Exit codes
 EXIT_SUCCESS=0
@@ -63,8 +63,14 @@ run_with_timeout() {
     _timeout="$1"
     shift
 
-    if [ -z "$_timeout" ] || [ "$_timeout" -le 0 ] 2>/dev/null; then
+    if [ -z "$_timeout" ]; then
         _timeout="$DEFAULT_TIMEOUT"
+    fi
+
+    if [ -n "$_timeout" ] && [ "$_timeout" -le 0 ] 2>/dev/null; then
+        log_info "Running without timeout: $1"
+        "$@"
+        return $?
     fi
 
     log_info "Running with ${_timeout}s timeout: $1"
@@ -122,6 +128,10 @@ truncate_output() {
     fi
 
     _size="$(wc -c < "$_file" | tr -d ' ')"
+
+    if [ -z "$_max" ] || [ "$_max" -le 0 ] 2>/dev/null; then
+        return 0
+    fi
 
     if [ "$_size" -gt "$_max" ]; then
         _keep_head=$((_max * 4 / 5))

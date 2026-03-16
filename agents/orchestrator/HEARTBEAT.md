@@ -1,1135 +1,211 @@
 # Orchestration Heartbeat Cycle
 
-You are triggered by system events (self-trigger on cycle completion) or by the watchdog cron (every 30 minutes, timeoutSeconds=1800). Follow these steps exactly.
+Follow this file as the control-flow source of truth. Keep it small. Detailed recipes live in:
+
+- `/project/host-repo/docs/orchestrator/SLACK_COMMANDS.md`
+- `/project/host-repo/docs/orchestrator/SCHEMAS.md`
+- `/project/host-repo/docs/orchestrator/OPERATIONS.md`
 
 ## Slash Command Processing (Priority Check)
 
-Before running the heartbeat cycle, check if you were triggered by a user message from Slack (not a cron or system event). If the incoming message matches a slash command pattern, handle it here and STOP without running the heartbeat cycle.
+Before any cycle logic, inspect the incoming message.
 
-### Detection
-
-Examine the incoming message content. If the first word (case-insensitive) matches one of the commands below, process it. If the message comes from a cron trigger or system event (e.g., contains "cycle-complete:", "heartbeat", or is a system wake), skip this section and proceed to Step 0.
-
-### Command: `help`
-
-Reply via Slack:
-```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"📋 OCMA 명령어 목록:\n• /ocma help — 이 도움말 표시\n• /ocma status — 현재 상태 요약\n• /ocma pause — 자율 사이클 일시정지\n• /ocma resume — 정지 해제 및 즉시 실행\n• /ocma run — 수동 사이클 트리거\n• /ocma backlog — 대기열 보기\n• /ocma add [설명] — 작업 추가\n• /ocma cancel [task-id] — 작업 취소\n• /ocma merge [PR#] — PR 머지 (번호 없으면 대기중인 PR 전체)\n• /ocma logs [N] — 최근 사이클 결과\n• /ocma health — 시스템 상태 점검\n• /ocma config [key] [value] — 설정 조회/변경\n• /ocma restart — 컨테이너 재시작\"", timeout=15)
-```
-**STOP** — do not proceed to Step 0.
-
-### Command: `status`
-
-1. Read `/project/state/run_state.json`.
-2. Read `/project/state/backlog.json`.
-3. Count tasks by status: pending, in_progress, completed, failed.
-4. Find the currently in_progress task (if any).
-5. Reply via Slack:
-```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"{status_emoji} 상태: {status} | 사이클: #{total_cycles} | 현재 작업: {current_task_or_없음} | 대기: {pending}개 | 완료: {completed}개 | 실패: {failed}개 | 마지막 heartbeat: {last_heartbeat_at}\"", timeout=15)
-```
-Where `status_emoji`: 🟢 = running, ⏸️ = paused, 🔴 = stopped.
-
-**STOP**.
-
-### Command: `pause`
-
-1. Read `/project/state/run_state.json`.
-2. Set `status` to `"paused"`, `pause_reason` to `"Slack 명령어로 정지"`.
-3. Write updated `/project/state/run_state.json`.
-4. Reply: `"⏸️ 정지됨. 진행중인 사이클은 완료 후 정지합니다. 재개: /ocma resume"`
-
-**STOP**.
-
-### Command: `resume`
-
-1. Read `/project/state/run_state.json`.
-2. Set `status` to `"running"`, `pause_reason` to `null`.
-3. Write updated `/project/state/run_state.json`.
-4. Reply: `"▶️ 재개됨. 다음 사이클 즉시 시작합니다."`
-5. Trigger next cycle:
-```
-exec(command="openclaw system event --mode now --text 'manual-resume: triggered via Slack'", timeout=15)
-```
-
-**STOP**.
-
-### Command: `run`
-
-1. Reply: `"🔄 사이클 수동 트리거됨. 결과는 이 채널에 보고합니다."`
-2. Trigger immediate cycle:
-```
-exec(command="openclaw system event --mode now --text 'manual-run: triggered via Slack'", timeout=15)
-```
-
-**STOP**.
-
-### Command: `backlog`
-
-1. Read `/project/state/backlog.json`.
-2. List all tasks grouped by status with format: `{status_emoji} {id} — {title} (우선순위: {priority})`
-   - ⏳ pending, 🔄 in_progress, ✅ completed, ❌ failed, 🚫 cancelled, ⛔ blocked
-3. Show max 10 tasks. If more exist, append `"...외 {N}개"`
-4. Reply with formatted backlog.
-
-**STOP**.
-
-### Command: `add <description>`
-
-1. Extract the description text after `add `.
-2. Generate task ID: `"manual-{unix_timestamp}"`.
-3. Create new task:
-   - `id`: generated ID, `title`: first 100 chars of description, `description`: full text
-   - `status`: `"pending"`, `priority`: `"medium"`, `priority_score`: `0.8`
-   - `generated_by`: `"user:slack"`, `created_at`/`updated_at`: current ISO timestamp
-   - All other optional fields: null/default
-4. Read `/project/state/backlog.json`, append task, write back.
-5. Reply: `"✅ 작업 추가됨: \"{title}\" (ID: {id})"`
-
-**STOP**.
-
-### Command: `cancel <task-id>`
-
-1. Extract task ID after `cancel `.
-2. Read `/project/state/backlog.json`.
-3. Find task by ID:
-   - Not found: reply `"❌ 작업을 찾을 수 없습니다: {task-id}"`
-   - Found, status is `pending` or `blocked`: set `status` to `"cancelled"`, write. Reply: `"🗑️ 작업 취소됨: {title} ({task-id})"`
-   - Found, status is `completed`/`failed`/`cancelled`: reply `"❌ 이미 종료된 작업입니다: {task-id} (상태: {status})"`
-   - Found, status is `in_progress`: reply `"⚠️ 진행중인 작업은 취소할 수 없습니다. 완료될 때까지 기다려주세요."`
-
-**STOP**.
-
-### Command: `logs [N]`
-
-1. Extract N (default: 5).
-2. Read `/project/state/metrics.json`.
-3. Take the last N entries from `entries`.
-4. Format each: `"#{cycle_id} | {verdict} | {debate_epochs}에포크 | 신뢰도: {confidence} | 소요: {total_cycle_time_sec}초"`
-5. Reply with formatted log list.
-
-**STOP**.
-
-### Command: `health`
-
-1. Check components:
-   - Read `/project/state/run_state.json` → status, total_cycles
-   - Read `/project/state/restart_state.json` → restart_count, tool_versions
-   - `exec(command="df -h /project | tail -1", timeout=5)` → disk usage
-   - Read `/project/state/backlog.json` → count by status
-2. Reply: `"🏥 시스템 상태:\n• 상태: {status}\n• 사이클: #{total_cycles}\n• 재시작: {restart_count}회\n• 도구: claude-code={ver}, codex={ver}, openclaw={ver}\n• 디스크: {usage}\n• 대기 작업: {pending}개 | 완료: {completed}개 | 실패: {failed}개"`
-
-**STOP**.
-
-### Command: `config [key] [value]`
-
-1. If only `config` (no arguments): read `/project/state/debate_config.json` and `/project/state/discovery_config.json`, reply with summary of all settings.
-2. If `config <key>` (view): show current value.
-3. If `config <key> <value>` (set): update value in appropriate config file.
-   - Allowed keys and their config files:
-     - `discovery_enabled` → `discovery_config.json` field `enabled` (boolean)
-     - `discovery_interval` → `discovery_config.json` field `schedule.discovery_interval_cycles` (number)
-     - `max_epochs` → `debate_config.json` field `max_epochs` (number, range 2-5)
-     - `convergence_threshold` → `debate_config.json` field `convergence_threshold` (number, range 0.5-0.9)
-   - Reply: `"⚙️ 설정 변경: {key} = {old} → {new}"`
-4. Unknown key: reply `"❌ 알 수 없는 설정: {key}. 사용 가능: discovery_enabled, discovery_interval, max_epochs, convergence_threshold"`
-
-**STOP**.
-
-### Command: `merge`
-
-Syntax: `merge`, `merge <PR#>`, or `merge all`
-
-1. Read `/project/state/backlog.json`.
-2. Find tasks with `pr_status == "pending_approval"` (PR created, waiting for user approval).
-3. If argument is a PR number: find the specific task with matching `pr_number`.
-4. If no argument or `all`: select all tasks with `pr_status == "pending_approval"`.
-5. If no matching PRs found: reply `"ℹ️ 머지 대기중인 PR이 없습니다."`
-6. For each matching task:
-   a. Mark PR as ready (if draft):
-      ```
-      exec(command="/project/tools/cli/gh.sh --op pr-ready --github-repo \"<task.github_repo>\" --pr-number \"<task.pr_number>\" --task-id \"<task.id>\"", timeout=30)
-      ```
-   b. Merge the PR:
-      ```
-      exec(command="/project/tools/cli/gh.sh --op pr-merge --github-repo \"<task.github_repo>\" --pr-number \"<task.pr_number>\" --merge-method squash --task-id \"<task.id>\"", timeout=30)
-      ```
-   c. If merge succeeds: update task `pr_status` to `"merged"`, reply `"✅ PR #{pr_number} 머지 완료: {pr_url}"`
-   d. If merge fails (conflict etc): reply `"❌ PR #{pr_number} 머지 실패: {error}. 수동 확인이 필요합니다."`
-7. Write updated `/project/state/backlog.json`.
-
-**STOP**.
-
-### Command: `restart`
-
-1. Reply: `"🔄 재시작을 시작합니다. 약 30초 후 복구됩니다."`
-2. Trigger graceful restart:
-```
-exec(command="/project/tools/cli/deploy.sh --op restart --reason slack_command --task-id \"manual-restart\"", timeout=10)
-```
-
-**STOP** — process will terminate.
-
-### End of Slash Command Processing
-
-If none of the above commands matched the incoming message, proceed to Step 0.
-
-### Natural Language Message Handler
-
-If the incoming message is from a Slack user (not cron/system) AND did not match any slash command above, check if it's a conversational request. The user may reply naturally in Korean without using `/ocma` prefix.
-
-**Merge approval patterns** — if message matches any of these (case-insensitive, partial match OK):
-- Korean: "머지", "머지해", "머지해줘", "합쳐", "합쳐줘", "ㅇㅇ", "응", "넹", "해줘", "고고", "진행해", "승인"
-- English: "merge", "approve", "lgtm", "go ahead", "yes"
-
-When detected:
-1. Read `/project/state/backlog.json`.
-2. Find tasks with `pr_status == "pending_approval"`.
-3. If found: merge all pending PRs (same as `merge all` command above).
-4. If not found: reply `"ℹ️ 머지 대기중인 PR이 없습니다. 다른 요청이 있으시면 /ocma help 를 참고해주세요."` and **STOP**.
-
-**Rejection patterns** — if message matches:
-- Korean: "아니", "취소", "안해", "보류", "나중에"
-- English: "no", "cancel", "later", "hold"
-
-When detected:
-1. Reply `"⏸️ 알겠습니다. PR 머지를 보류합니다. 나중에 /ocma merge 로 머지할 수 있습니다."` and **STOP**.
-
-**Unrecognized messages**: If the message doesn't match any pattern above and is not a system trigger, reply:
-`"🤖 알 수 없는 요청입니다. /ocma help 로 사용 가능한 명령어를 확인해주세요."` and **STOP**.
-
----
+- If it is a Slack user message, process slash commands and conversational shortcuts using `/project/host-repo/docs/orchestrator/SLACK_COMMANDS.md`.
+- If a handler says **STOP**, clear `cycle_lock` in `/project/state/run_state.json` first.
+- If no command or shortcut matches, continue to Step 0.
 
 ## Step 0: Safety Pre-Check
 
-Read `/project/state/discovery_config.json` and `/project/state/backlog.json`.
-
-- `max_consecutive_failures_before_disable = discovery_config.safety.max_consecutive_failures_before_disable ?? 5`
-- `max_auto_priority = discovery_config.safety.max_auto_priority ?? 0.9`
-
-Run this quick pre-flight before Step 1:
-
-1. **Consecutive failure tracking**
-   - Count consecutive tasks from the end of `/project/state/backlog.json` where `status == "failed"` until the first non-failed task.
-   - If `discovery_config.enabled == true` AND consecutive failures `>= max_consecutive_failures_before_disable`:
-     - Set `enabled` to `false` in `/project/state/discovery_config.json`.
-     - Post to Slack: `"⚠️ 안전장치: {N}회 연속 실패로 자동 탐색 비활성화됨. 수동 검토 필요."`
-     - Append the same event to `/project/state/decision_log.md`.
-
-2. **Self-referential task check**
-   - Read `discovery_config.safety.no_self_referential_tasks`.
-   - If `no_self_referential_tasks == true` (blocking enabled):
-     - Inspect the next pending task (`status == "pending"`, first by backlog order).
-      - Treat as self-referential if `target_repo == "openclaw-multi-agent"` OR `title`/`description` references OCMA itself (keywords: `"openclaw-multi-agent"`, `"ocma"`, `"orchestrator"`, `"heartbeat"`).
-      - For each self-referential match:
-        - Set `status` to `"cancelled"`.
-        - Set `error` to `"Safety: self-referential task blocked"`.
-        - Post to Slack: `"🛡️ 안전장치: 자기참조 작업 차단됨 — {title}"`.
-        - Continue scanning for the next pending task.
-     - Write updated `/project/state/backlog.json` if any task was cancelled.
-   - If `no_self_referential_tasks == false` (blocking disabled): skip this check entirely. Self-referential tasks are allowed.
-
-3. **Priority ceiling check**
-   - On the next pending task selected after safety filtering: if `generated_by` starts with `"discovery:"` AND `priority_score > max_auto_priority`:
-     - Cap `priority_score` to `max_auto_priority`.
-     - Append to `/project/state/decision_log.md`: `"Priority capped from {original} to {max}"`.
-     - Write updated `/project/state/backlog.json`.
+- Read `/project/state/discovery_config.json` and `/project/state/backlog.json`.
+- Enforce:
+  - consecutive failure safety
+  - self-referential task blocking when enabled
+  - priority ceiling for auto-generated tasks
+- Use the exact safety recipes from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 0.2: Agent Session Preflight
 
-Before the debate phase, verify cross-agent sessions_send availability.
-
-**Required config**: `tools.sessions.visibility` must be `"all"` in `container-config/openclaw.json` (or `~/.openclaw/openclaw.json`). The root `openclaw.json` template is the source of truth.
-
-**Preflight check** (run only when status is "running"):
-1. Send `sessions_send(sessionKey="agent:planner:main", message="PING", timeoutSeconds=8)`
-2. Send `sessions_send(sessionKey="agent:implementer:main", message="PING", timeoutSeconds=8)`
-3. If either returns `status: "forbidden"` or `status: "error"` or times out:
-   - Set `debate_mode = "cli"` (applies to entire cycle)
-   - Post to Slack: `"⚠️ 에이전트 세션 비가용: CLI 폴백 모드로 전환. tools.sessions.visibility='all' 확인 필요."`
-4. If both return `status: "ok"` (NO_REPLY is a valid reply from agents): `debate_mode = "sessions_send"`
-
-**CLI fallback routing** (when `debate_mode = "cli"`):
-| Role | Session key | CLI fallback |
-|------|-------------|--------------|
-| Planner | `agent:planner:main` | `/project/tools/cli/claude.sh` |
-| Critic | `agent:critic:main` | `/project/tools/cli/codex.sh` |
-| Implementer | `agent:implementer:main` | `/project/tools/cli/claude.sh` |
-| Verifier | `agent:verifier:main` | `/project/tools/cli/gemini.sh` |
-
-In CLI fallback mode, replace all `sessions_send(sessionKey=..., message=...)` calls with:
-```
-exec(command="/project/tools/cli/<tool>.sh --prompt \"<full prompt with role + task>\" --task-id \"<task-id>\" --timeout 120")
-```
-Parse stdout as JSON (same contract applies).
+- Verify planner and implementer session availability.
+- If sessions are unavailable, switch the whole cycle to CLI fallback.
+- Use the session mapping in `AGENTS.md` and the detailed fallback recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 0.5: Cycle Lock Check
 
-Read `/project/state/run_state.json`.
-
-1. Check `cycle_lock`:
-   - If `cycle_lock` exists and `cycle_lock.locked_at` is less than 1800 seconds ago:
-     - This means another cycle is already running. Exit immediately — do nothing.
-   - If `cycle_lock` exists but is older than 1800 seconds:
-     - The previous cycle is stale. Clear the lock and proceed (will be re-locked in the next step).
-   - If `cycle_lock` is null or absent -> proceed.
-
-2. Acquire cycle lock:
-   - Set `cycle_lock` to `{ "locked_at": "<current ISO 8601>", "trigger": "<cron|system-event|manual>" }`
-   - Write updated `/project/state/run_state.json`.
-
-**IMPORTANT**: Every path that says "STOP" must first clear the `cycle_lock` in `run_state.json` (set to `null` and write the file) before stopping. This ensures the watchdog cron can restart the cycle.
+- Read `/project/state/run_state.json`.
+- If `cycle_lock` exists and is fresh, stop immediately.
+- If stale, clear it.
+- Acquire a fresh lock before proceeding.
 
 ## Step 1: Check Run State
 
-Read `/project/state/run_state.json`.
-
-- If `status` is `"stopped"` or `"paused"` → clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP immediately**. Do nothing else.
-- If `status` is `"running"` → proceed to Step 2.
-- Write `last_heartbeat_at: <current ISO 8601 timestamp>` to `/project/state/run_state.json`.
+- If `status` is `paused` or `stopped`, clear `cycle_lock` and stop.
+- If `status` is `running`, update `last_heartbeat_at` and continue.
 
 ## Step 1.5: Deadlock Detection
 
-Define constants:
-
-- `DEADLOCK_STALE_SECONDS = 1800` (30 minutes)
-- `DEFAULT_MAX_IMPLEMENTATION_RETRIES = 2`
-
-Load retry limit for deadlock handling:
-
-1. Read `/project/state/debate_config.json`.
-2. Set `max_implementation_retries = debate_config.max_implementation_retries ?? DEFAULT_MAX_IMPLEMENTATION_RETRIES`.
-
-Write a heartbeat proof-of-life timestamp:
-
-- Write `last_heartbeat_at` in `/project/state/run_state.json` with current ISO 8601 timestamp.
-
-Check stale in-progress tasks:
-
-1. Read `/project/state/backlog.json`.
-2. Scan tasks where `status == "in_progress"` and `started_at` is present.
-3. Compare current time vs `started_at`; treat task as stale when elapsed seconds > `DEADLOCK_STALE_SECONDS`.
-4. For each stale task:
-   - If `retry_count < max_implementation_retries`:
-     - Set `status` to `"pending"`
-     - Increment `retry_count` by 1
-     - Append deadlock reset event to `/project/state/decision_log.md`
-     - Post to Slack: `"⚠️ 교착상태 감지 | 작업: {title} | 조치: 재시도 (retry #{retry_count})"`
-   - If `retry_count >= max_implementation_retries`:
-     - Set `status` to `"failed"`
-     - Set `error` to `"Deadlock: task stuck in_progress for >30min"`
-     - Release git lease in `/project/state/git_state.json` if the task holds one
-     - Append deadlock failure event to `/project/state/decision_log.md`
-     - Post to Slack: `"❌ 교착상태 감지 | 작업: {title} | 조치: 실패 처리 (재시도 한도 초과)"`
-5. Write updated `/project/state/backlog.json`.
-
-Clean expired git leases:
-
-1. Read `/project/state/git_state.json`.
-2. For each lease in `active_leases`, treat it as expired when `started_at + ttl_seconds < now`.
-3. Remove expired leases from `active_leases`.
-4. Write updated `/project/state/git_state.json`.
+- Detect stale `in_progress` tasks and expired repo leases.
+- Reset or fail stale tasks based on retry budget.
+- Use the exact deadlock and lease cleanup recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 2: Load Configuration
 
-Read `/project/state/debate_config.json`. Store the following parameters:
-
-- `max_epochs` (default: 3)
-- `convergence_threshold` (default: 0.7)
-- `max_implementation_retries` (default: 2)
-- `max_cycles_without_progress` (default: 5)
-- `anti_loop_enabled` (default: true)
+- Read `/project/state/debate_config.json`.
+- Load at minimum:
+  - `max_epochs`
+  - `convergence_threshold`
+  - `max_implementation_retries`
+  - `max_cycles_without_progress`
+  - `anti_loop_enabled`
 
 ## Step 2.5: Running Prompt Evolution
 
-This step prepends accumulated learnings to agent prompts before any debate begins.
-
-1. Read `/project/state/learning_log.json`.
-2. Filter entries where `applied == false`.
-3. If there are no unapplied learnings, skip this step (no prompt evolution needed).
-4. If more than 20 unapplied learnings exist, keep only the most recent 20.
-5. Group unapplied learnings by `type`:
-   - `verifier_failure` -> `Past failures to avoid`
-   - `debate_pattern` -> `Debate patterns observed`
-   - `critic_insight` -> `Critic insights`
-   - `performance_metric` -> `Performance observations`
-6. Format a running appendix block:
-
-   ```text
-   === RUNNING PROMPT (auto-generated from past learnings) ===
-
-   ## Past Failures to Avoid
-   - {content from verifier_failure entries}
-
-   ## Debate Patterns Observed
-   - {content from debate_pattern entries}
-
-   ## Critic Insights
-   - {content from critic_insight entries}
-
-   ## Performance Observations
-   - {content from performance_metric entries}
-
-   === END RUNNING PROMPT ===
-   ```
-
-7. Store this block as `running_prompt_text` for use in Step 4 and Step 5:
-   - When calling `sessions_send(agent="planner", ...)` or `sessions_send(agent="critic", ...)`, prepend `running_prompt_text` to the message body.
-   - This provides past learnings without modifying any `AGENTS.md` files.
-8. Mark all used learnings as `applied: true` and write the updated `/project/state/learning_log.json`.
-9. Log: `Running prompt evolved with {N} new learnings ({types})`, where `{types}` lists included types (for example: `verifier_failure, debate_pattern`).
-
-Key design decisions:
-
-- Learnings are prepended to `sessions_send` messages, not baked into `AGENTS.md`.
-- Each learning is applied once (marked `applied: true` after use).
-- Running prompt is rebuilt fresh each cycle from unapplied learnings.
+- Build `running_prompt_text` from unapplied learnings in `/project/state/learning_log.json`.
+- Mark used learnings as applied.
+- Use the grouping and update recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 2.6: Convergence Auto-Tuning
 
-This step analyzes recent metrics to auto-adjust debate parameters.
-
-1. Read `/project/state/metrics.json`.
-2. If fewer than 5 entries exist, skip this step (not enough data for tuning).
-3. Take the last 10 entries (or all entries if fewer than 10).
-4. Compute:
-   - `avg_epochs = mean(debate_epochs)`
-   - `convergence_rate = count(convergence_achieved == true) / total`
-   - `tiebreak_rate = count(tiebreak_used == true) / total`
-   - `avg_confidence = mean(verification_confidence)` excluding `null`
-   - `pass_rate = count(verification_verdict == "PASS") / total`
-5. Read current values from `/project/state/debate_config.json`, then apply tuning rules:
-
-   - **Rule 1: Increase `max_epochs` if tiebreak frequency is high**
-     - If `tiebreak_rate > 0.4` and `max_epochs < 5`, set `max_epochs = max_epochs + 1`.
-     - Log: `Auto-tuning: Increased max_epochs to {new_value} (tiebreak_rate={tiebreak_rate})`.
-
-   - **Rule 2: Decrease `max_epochs` if convergence is consistently fast**
-     - If `avg_epochs < 1.5` and `convergence_rate > 0.8` and `max_epochs > 2`, set `max_epochs = max_epochs - 1`.
-     - Log: `Auto-tuning: Decreased max_epochs to {new_value} (fast convergence)`.
-
-   - **Rule 3: Lower `convergence_threshold` when pass rate is low**
-     - If `pass_rate < 0.5` and `convergence_threshold > 0.5`, set `convergence_threshold = convergence_threshold - 0.05`.
-     - Log: `Auto-tuning: Lowered convergence_threshold to {new_value} (low pass_rate={pass_rate})`.
-
-   - **Rule 4: Raise `convergence_threshold` when quality is consistently high**
-     - If `pass_rate > 0.9` and `avg_confidence > 0.85` and `convergence_threshold < 0.9`, set `convergence_threshold = convergence_threshold + 0.05`.
-     - Log: `Auto-tuning: Raised convergence_threshold to {new_value} (high quality)`.
-
-6. If any parameter changed:
-   - Write updated `/project/state/debate_config.json`.
-   - Post to Slack: `⚙️ 자동 조정: {params_changed} 파라미터 변경됨`.
-7. If no changes are needed, log: `Auto-tuning: parameters optimal (convergence_rate={rate}, pass_rate={rate})`.
-
-Key design decisions:
-
-- Require at least 5 cycles of metrics data before tuning.
-- Only one rule per parameter fires per cycle (first matching rule wins).
-- Enforce hard bounds: `max_epochs` in `[2, 5]`, `convergence_threshold` in `[0.5, 0.9]`.
-- Append tuning changes to `/project/state/decision_log.md` for audit traceability.
+- Analyze recent metrics and tune debate parameters only within bounded ranges.
+- Write tuning changes to `/project/state/debate_config.json` and `/project/state/decision_log.md` when needed.
+- Use the exact thresholds and bounds in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 3: Pick Next Task
 
-Read `/project/state/backlog.json`. Rank tasks where `"status": "pending"` by impact before selecting work.
+- Read `/project/state/backlog.json`.
+- Rank pending tasks by:
+  1. `priority_score` when present
+  2. priority bucket
+  3. older `created_at`
+  4. backlog order
+- Mark the selected task `in_progress`.
 
-- If pending task found:
-  - Select the pending task with the highest effective priority using this order:
-    1. Higher `priority_score` first when present
-    2. Then priority bucket order: `critical` > `high` > `medium` > `low`
-    3. Then older `created_at` first
-    4. Then existing array order as final tie-break
-  - Set `selected_task` to that highest-ranked pending task.
-  - Set `selected_task.status` to `"in_progress"` and `selected_task.assigned_to` to `"orchestrator"`.
-  - Write the updated backlog back.
-- If **no pending task** found, run discovery fallback:
+If no pending task exists:
 
-1. Read `/project/state/discovery_config.json`.
-2. If `enabled == false`:
-   - Post to Slack: `"💤 대기중: 작업 없음. 자동 탐색 비활성화 상태."`
-   - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
-3. If `enabled == true`:
-   - Read `/project/state/run_state.json` and get `total_cycles`.
-   - Read `schedule.discovery_interval_cycles` and `schedule.max_auto_tasks_per_discovery`.
-   - Read `idle_cycles` from `/project/state/run_state.json` (default: 0 if not present).
-   - Increment `idle_cycles` by 1.
-   - Write updated `idle_cycles` to `/project/state/run_state.json`.
-   - Run discovery when `idle_cycles % schedule.discovery_interval_cycles == 0`.
+- Run discovery fallback only if enabled and due.
+- Generate tasks from configured discovery sources.
+- Apply duplicate and safety filters before writing.
+- Use the detailed discovery recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
-   > **Worked examples** (using config values, not hardcoded):
-   > - `idle_cycles=7, schedule.discovery_interval_cycles=3` → `7%3=1 ≠ 0` → skip, `cycles_until = 3-(7%3) = 2`
-   > - `idle_cycles=9, schedule.discovery_interval_cycles=3` → `9%3=0` → **run discovery**
-   > - `idle_cycles=1, schedule.discovery_interval_cycles=5` → `1%5=1 ≠ 0` → skip, `cycles_until = 4`
+For git tasks:
 
-   - If it is not a discovery cycle:
-     - Compute `cycles_until_discovery = schedule.discovery_interval_cycles - (idle_cycles % schedule.discovery_interval_cycles)`.
-     - Post to Slack: `"💤 대기중: 작업 없음. 다음 탐색까지 {cycles_until_discovery}회 남음."`
-     - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
-
-4. Initialize discovery state:
-   - `generated_tasks = []`
-   - `generated_sources = []`
-   - `max_auto_tasks = schedule.max_auto_tasks_per_discovery`
-   - `now_iso = <current ISO 8601 timestamp>`
-   - Keep using the in-memory `backlog` already read in this step for duplicate checks and source context.
-
-5. Run enabled discovery sources in this order, and stop generating when `generated_tasks.length >= max_auto_tasks`:
-   - When a source generates one or more tasks, append its source key (`goals_md`, `critic_patterns`, `verifier_failures`, `code_health`) to `generated_sources` once.
-
-    - **Source 1: goals_md** (if `sources.goals_md.enabled`):
-      - Read `/project/state/goals.md`.
-      - Extract bullet points under `## Active Goals`.
-      - For each goal bullet:
-        - Check backlog for a similar task (simple case-insensitive text similarity against task `title` and `description`).
-        - If no similar task exists, create a new backlog task with:
-         - `id`: `"auto-{unix_timestamp}-goals_md"`
-         - `title`: concise task title derived from the goal
-          - `description`: implementation-oriented expansion of the goal, biased toward service-level improvements, version upgrades, deployability, observability, or release-readiness impact rather than narrow local cleanup
-         - `status`: `"pending"`
-         - `priority`: `"medium"`
-         - `assigned_to`: `null`
-         - `created_at`: `now_iso`
-         - `updated_at`: `now_iso`
-         - `started_at`: `null`
-         - `retry_count`: `0`
-         - `fast_path`: `false`
-         - `generated_by`: `"discovery:goals_md"`
-         - `source_task_id`: `null`
-          - `learning_tags`: `["goals", "service-evolution", "auto-discovery"]`
-          - `priority_score`: `0.8`
-
-   - **Source 2: critic_patterns** (if `sources.critic_patterns.enabled`):
-     - Read `/project/state/learning_log.json`.
-     - Select entries where `type == "debate_pattern"` and `tags` contains `"tiebreak"`.
-     - Group similar entries by normalized `content` pattern.
-     - For each pattern with count `>= 2`, create one hardening task with:
-       - `id`: `"auto-{unix_timestamp}-critic_patterns"`
-       - `generated_by`: `"discovery:critic_patterns"`
-       - `priority_score`: `0.6`
-       - `fast_path`: `false`
-       - `source_task_id`: source task id from the most recent grouped learning entry (or `null`)
-       - `learning_tags`: grouped tags + `"critic-pattern"`
-
-   - **Source 3: verifier_failures** (if `sources.verifier_failures.enabled`):
-     - Read `/project/state/learning_log.json`.
-     - Select entries where `type == "verifier_failure"` and `applied == false`.
-     - Group failures by similar `tags` signatures.
-     - For each grouped failure pattern with count `>= 2`, create one fix task with:
-       - `id`: `"auto-{unix_timestamp}-verifier_failures"`
-       - `generated_by`: `"discovery:verifier_failures"`
-       - `priority_score`: `0.8`
-       - `fast_path`: `false`
-       - `source_task_id`: source task id from the most recent grouped learning entry (or `null`)
-       - `learning_tags`: grouped tags + `"recurring-failure"`
-     - For learning entries used to generate these tasks, set `applied: true`.
-     - Write updated `/project/state/learning_log.json`.
-
-    - **Source 4: code_health** (if `sources.code_health.enabled`):
-      - From backlog, collect unique `target_repo` values from tasks where `status == "completed"`.
-      - For each repo, create a code health task only as maintenance support work when it is likely to unlock or validate a higher-value service/version goal.
-      - Do not let code-health tasks crowd out service-evolution or version-upgrade work in the same discovery cycle.
-      - Use descriptions that explicitly connect the scan to release readiness, upgrade safety, or production hardening.
-      - Create tasks with:
-        - `id`: `"auto-{unix_timestamp}-code_health"`
-        - `generated_by`: `"discovery:code_health"`
-        - `priority_score`: `0.4`
-        - `fast_path`: `false`
-        - `source_task_id`: `null`
-        - `learning_tags`: `["code-health", "maintenance", "auto-discovery"]`
-        - `target_repo`: completed task repo
-        - `github_repo`: corresponding repo if known
-
-6. Apply safety rules before writing any generated task:
-   - Apply `safety.max_auto_priority` cap to each `priority_score` (example: `min(priority_score, safety.max_auto_priority)`, with configured cap `0.9`).
-   - Apply `safety.duplicate_detection`: skip tasks whose `title`/`description` is similar to any existing backlog entry or already-generated task in this cycle.
-   - Apply `safety.no_self_referential_tasks`: skip tasks targeting the OCMA repo itself (for example `target_repo == "openclaw-multi-agent"` or matching `github_repo`).
-   - Ensure each accepted generated task includes backlog schema fields, including auto-discovery fields: `generated_by`, `source_task_id`, `learning_tags`, `priority_score`, and `status: "pending"`.
-
-7. Finalize discovery:
-   - Set `N = generated_tasks.length`.
-   - Set `sources = generated_sources.join(", ")`.
-   - Append accepted generated tasks to `/project/state/backlog.json`.
-   - Write updated backlog file.
-   - Post to Slack: `"🔍 탐색 완료: {sources}에서 {N}개 신규 작업 생성"`.
-   - If `N == 0`: post `"💤 탐색 후에도 작업 없음. 대기 모드."`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
-
-8. Pick discovered task for execution:
-   - Select the generated task with highest `priority_score` (tie-break by generation order) and store as `selected_task`.
-   - Set `selected_task.status` to `"in_progress"` and `selected_task.assigned_to` to `"orchestrator"`.
-   - Write updated `/project/state/backlog.json`.
-
-If the selected task has `target_repo` and `github_repo` fields (non-null):
-- Check repo lease in `/project/state/git_state.json`
-- If leased by another active task → skip this task, find next pending task
-- If not leased → write lease and proceed
+- Check repo lease in `/project/state/git_state.json` before proceeding.
 
 ## Step 4: Post Cycle Start to Slack
 
-Record `cycle_start_time = <current ISO 8601 timestamp>` for `total_cycle_time_sec` calculation in Step 8.5.
-
-```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔄 사이클 시작 | 작업: {task.title} | ID: {task.id}\"", timeout=15)
-```
+- Record `cycle_start_time`.
+- Post cycle start message to Slack.
 
 ## Step 4.5: Prepare Debate Context
 
-Before starting the debate, assemble a focused context package to keep token usage efficient:
-
-1. **Task context**: Read the selected task from backlog (already in memory from Step 3).
-2. **Running prompt**: If `running_prompt_text` was built in Step 2.5, it will be prepended to debate messages.
-3. **Memory search**: Use `memory_search(query="<task title or key terms>", limit=3)` to find relevant past conversations about similar tasks.
-4. **Prior epoch summary** (multi-epoch only): If this task already has `debate_epochs > 0`, read the last epoch summary from `/project/state/decision_log.md`. Summarize it in 200 words or less — do NOT pass the full debate history.
-5. **Repository context** (repo-targeted tasks only): If the task has `clone_path`, use `read` to get:
-   - Project structure (top-level directory listing)
-   - Key config files (`package.json`, `pyproject.toml` — first 50 lines only)
-   - Files mentioned in the task description
-
-Store all assembled context as `debate_context` for use in Step 5.
-
-**Context budget**: Keep total context under 4000 tokens. Summarize aggressively — agents can use `read` to get details during the debate.
+- Assemble a compact context package:
+  - selected task
+  - `running_prompt_text`
+  - `memory_search` results
+  - prior epoch summary if any
+  - minimal repo context for repo tasks
+- Keep context small and focused.
+- Use the exact context recipe from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 5: Run Debate (Epoch Loop)
 
-### Session Management
-
-Before each `sessions_send` call in the debate:
-
-1. **maxPingPongTurns limit**: Each session is limited to 5 turns (`maxPingPongTurns: 5` in openclaw.json). Track turn count per session.
-   - If approaching the limit (turn 4+), include a summarization prompt: "This is the final turn. Provide your complete analysis in this response."
-   - When the limit is reached mid-epoch, start a new session with context from the previous session summary. Do NOT continue the saturated session.
-
-2. **Session timeout handling**: If `sessions_send` times out (600 second `runTimeoutSeconds`):
-   - Log: "Session timeout for {agent} on epoch {N}."
-   - Retry once with a shorter prompt (summarize context to 50% of original).
-   - If retry also times out, force tiebreak for this debate.
-
-3. **Epoch rollover**: When starting a new epoch after an inconclusive previous epoch:
-   - Summarize the previous epoch in max 300 words: key points of agreement, key disagreements, and unresolved risks.
-   - Pass ONLY this summary (not full transcript) to the new epoch's sessions.
-   - This prevents context window overflow across multi-epoch debates.
-
-   **Epoch summary template** — extract these fields:
-   - `planner.claim` (original proposal), `critic.issues` (major only), `revised.claim`, unresolved `risk` items
-   
-   Example before (raw transcript, ~2000 tokens) → after (summary, ~150 tokens):
-   > "Epoch 1: Planner proposed token-bucket rate limiter (O(1) per request). Critic raised major issue: no TTL eviction policy. Planner revised to add 1h TTL. Unresolved: cold-start latency after eviction, no load testing data."
-
-Record `debate_start_time = <current ISO 8601 timestamp>` when debate begins.
-
-**Wall-Time Timeout**: At the start of each epoch, check if elapsed wall-time exceeds `max_debate_wall_time_sec` from debate_config.json (default: 600 seconds). If exceeded, force tiebreak immediately with tag `[WALL-TIME-EXCEEDED]` and proceed to Step 6.
-
-### Fast-Path Check
-If the task has `"fast_path": true`:
-1. Skip the entire debate epoch loop
-2. Call Planner once for a plan (no challenge/revise):
-   ```
-   sessions_send(agent="planner", message="Create a plan for: [task]. No debate needed. Respond with JSON.", timeout=120)
-   ```
-3. Proceed directly to Step 5.5 (Clone Setup)
-
-Initialize: `epoch = 1`, `previous_context = null`
-
-### For each epoch (while epoch <= max_epochs):
-
-#### 5a. PROPOSE — Call Planner
-
-```
-sessions_send(agent="planner", message="...", timeout=120)
-```
-
-Message must include:
-- Role: "propose"
-- Task description from backlog entry
-- Context from `/project/state/goal.md` (if non-empty)
-- Previous epoch summary (if epoch > 1)
-- Explicit instruction: "Respond with JSON only. Required fields: claim, evidence, risk, next_action, options, recommended, subtasks."
-
-Parse Planner's response as JSON. If parsing fails, retry once with: "Your response was not valid JSON. Respond with ONLY a JSON object, no markdown fences, no explanation."
-
-> **Example Planner response** (see AGENTS.md JSON Contract for full schema):
-> `{"claim": "Use token bucket with sliding window", "evidence": ["O(1) per request", "Redis-backed"], "risk": ["Memory growth under burst"], "next_action": "implement", "options": ["token-bucket", "leaky-bucket"], "recommended": "token-bucket", "subtasks": [{"title": "Add rate limiter middleware", "scope": "src/middleware/"}]}`
-
-#### 5b. CHALLENGE — Call Critic
-
-```
-sessions_send(agent="critic", message="...", timeout=120)
-```
-
-Message must include:
-- Role: "challenge"
-- Planner's full JSON proposal
-- Explicit instruction: "Review this proposal adversarially. Respond with JSON only. Required fields: claim (start with APPROVE/REVISE/REJECT), evidence, risk, next_action, issues, verdict."
-
-Parse Critic's response as JSON.
-
-> **Example Critic response** (see AGENTS.md JSON Contract for full schema):
-> `{"claim": "REVISE: token bucket lacks eviction policy", "evidence": ["No TTL on bucket keys"], "risk": ["Stale entries accumulate"], "next_action": "revise", "issues": [{"severity": "major", "description": "Missing TTL configuration"}], "verdict": "REVISE"}`
-
-#### 5c. REVISE — Call Planner
-
-```
-sessions_send(agent="planner", message="...", timeout=120)
-```
-
-Message must include:
-- Role: "revise"
-- Planner's original proposal
-- Critic's full feedback
-- Explicit instruction: "Address the Critic's concerns. Mark each criticism as accepted or rebutted with reasoning. Respond with JSON only. Required fields: claim, evidence, risk, next_action, options, recommended, subtasks."
-
-Parse Planner's revised response as JSON.
-
-> **Example revised Planner response**: Same schema as 5a, but `claim` should reference addressed criticisms:
-> `{"claim": "Token bucket with 1h TTL eviction (addresses Critic TTL concern)", "evidence": ["TTL auto-cleanup", "O(1) per request"], "risk": ["Cold start after eviction"], "next_action": "implement", ...}`
-
-#### 5d. DECIDE — Evaluate Convergence (Internal)
-
-Check convergence:
-- **Converged** if: Planner's revised `next_action == "implement"` AND Critic's verdict is not `"REJECT"` AND all Critic's major issues are addressed in the revision.
-- **Escalate** if: any agent's `next_action == "escalate"` → post to Slack requesting user input, set task `status` to `"blocked"`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), **STOP**.
-
-If **converged** → write epoch summary to `/project/state/decision_log.md`, proceed to Step 6.
-
-If Critic's `verdict == "REJECT"`:
-- Check Critic `issues` for at least one item with `severity == "critical"`.
-- If at least one critical issue exists:
-  - Set task `status` to `"blocked"`
-  - Set `block_reason` to Critic's `claim`
-  - Write REJECT block decision to `/project/state/decision_log.md`
-  - Post to Slack: `"🚫 차단됨 | 작업: {task.title} | Critic 거부: {claim_summary}"`
-  - Clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), then **STOP**
-- If no critical issue exists: treat this as REVISE (downgrade REJECT to REVISE) and continue to next epoch.
-
-If **not converged**:
-1. Write epoch summary to `/project/state/decision_log.md` using the template:
-
-```markdown
-## Epoch {N} Summary — {task.id}
-- **Task**: {task.title}
-- **Proposed**: {Planner claim summary}
-- **Challenged**: {Critic claim summary}
-- **Revised**: {Revised claim summary}
-- **Status**: diverged
-- **Open Issues**: {list unresolved issues}
-```
-
-2. **Anti-loop check** (if `anti_loop_enabled`):
-   - Compute hash: `SHA256(revised.claim + revised.next_action)`
-   - Read `/project/state/debate_hashes.json`
-   - If hash already exists → **STALE DEBATE**. Force tiebreak: pick the approach with lowest aggregate risk across all epochs. Tag decision as `[TIE-BREAK]`. Proceed to Step 6.
-   - If hash is new → add it to the hashes file and continue.
-
-3. Set `previous_context` = epoch summary text. Increment `epoch`. Continue loop.
-
-If **epoch > max_epochs** and still not converged:
-- If Critic's final-epoch `verdict == "REJECT"` and Critic `issues` include at least one `severity == "critical"` issue: do NOT tiebreak. Set task `status` to `"blocked"`, set `block_reason` to Critic's `claim`, write to `/project/state/decision_log.md`, post to Slack `"🚫 차단됨 | 작업: {task.title} | Critic 거부: {claim_summary}"`, clear `cycle_lock` in `/project/state/run_state.json` (set to `null`, write), and **STOP**.
-- If Critic's final-epoch verdict is `"APPROVE"` or `"REVISE"`, or `"REJECT"` without any critical issue → force tiebreak (same as stale debate). Proceed to Step 6.
-
-#### 5e. RECORD DEBATE LEARNING (after convergence or tiebreak)
-
-This sub-step runs ONLY when the debate is concluding (convergence reached, tiebreak forced, or REJECT block):
-
-1. **If tiebreak was used**: record a learning entry
-   - Type: `"debate_pattern"`
-   - Content: `"Task {task.id}: Debate required tiebreak after {epoch} epochs. Planner approach: {planner.claim}. Critic concern: {critic.claim}. Resolution: tiebreak on {tiebreak_strategy}"`
-   - Tags: task's `learning_tags` + `["tiebreak"]`
-
-2. **If converged in epoch 1**: record a positive learning
-   - Type: `"debate_pattern"`
-   - Content: `"Task {task.id}: Fast convergence in epoch 1. Planner and Critic aligned on: {revised.claim}"`
-   - Tags: task's `learning_tags` + `["fast_convergence"]`
-
-3. **If converged after epoch > 1**: record the evolution pattern
-   - Type: `"debate_pattern"`
-   - Content: `"Task {task.id}: Convergence after {epoch} epochs. Key Critic insight that improved plan: {critic's most impactful issue}"`
-   - Tags: task's `learning_tags` + `["multi_epoch"]`
-
-4. **Store in learning_log.json** using the same read/append/FIFO/write pattern as Step 8.5:
-   - Read `/project/state/learning_log.json`
-   - Append new entry: `{id: "learning-{timestamp}", task_id: task.id, type: "debate_pattern", content: "...", tags: [...], created_at: <ISO 8601>, applied: false}`
-   - If total entries > 200: remove oldest entries (FIFO) until count = 200
-   - Write updated file
+- Respect `maxPingPongTurns`, session timeout handling, and wall-time budget.
+- Debate order per epoch:
+  1. Planner propose
+  2. Critic challenge
+  3. Planner revise
+  4. Orchestrator decide
+- Parse every response using the JSON contract from `/project/host-repo/docs/orchestrator/SCHEMAS.md`.
+- If convergence is reached, proceed to Step 5.5.
+- If debate stalls or exceeds limits, tiebreak using the recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
+- Record debate learning at conclusion.
 
 ## Step 5.5: Clone Setup (Git Tasks Only)
 
-If the task has `target_repo` (non-null):
-
-1. Clone the target repository:
-   ```
-   exec(command="/project/tools/cli/git.sh --op clone --repo \"<task.target_repo>\" --github-repo \"<task.github_repo>\" --task-id \"<task.id>\"", timeout=120)
-   ```
-2. Store clone_path in the task: `"/project/workspaces/.clones/<task.id>/<task.target_repo>"`
-3. Set branch_name: `"ocma/<task.id>"`
-4. Update backlog.json with clone_path and branch_name
-
-If the task has NO target_repo → skip this step (non-git task, backward compatible).
+- Clone target repo with `git.sh`.
+- Store `clone_path` and `branch_name` on the task.
 
 ## Step 6: Implement
 
-Post to Slack:
-```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔨 구현 단계 | 작업: {task.title} | Implementer에게 전달\"", timeout=15)
-```
-
-Call Implementer:
-```
-sessions_send(agent="implementer", message="...", timeout=120)
-```
-
-Message must include:
-- Clone path and branch name (if git task): `clone_path`, `branch_name`, `github_repo`
-- The Implementer must use `--cwd <clone_path>` for all CLI tool calls
-- The approved plan (final Planner JSON or tiebreak decision)
-- Task description and target files/paths
-- Full debate summary (all epoch summaries)
-- Explicit instruction: "Implement the approved plan. Respond with JSON only. Required fields: claim, evidence, risk, next_action, artifacts."
-
-Parse Implementer's response as JSON.
-
-> **Example Implementer response** (see AGENTS.md JSON Contract for full schema):
-> `{"claim": "Added rate limiter middleware in 2 files", "evidence": ["src/middleware/rateLimiter.ts created", "src/index.ts updated"], "risk": ["No load test yet"], "next_action": "verify", "artifacts": [{"file": "src/middleware/rateLimiter.ts", "action": "created", "tool_used": "edit"}]}`
+- Post implementation phase notice to Slack.
+- Call Implementer with:
+  - approved plan
+  - task details
+  - repo path and branch when applicable
+  - required JSON-only response contract
 
 ## Step 7: Verify
 
-Post to Slack:
-```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"🔍 검증 단계 | 작업: {task.title} | Verifier에게 전달\"", timeout=15)
-```
-
-Call Verifier:
-```
-sessions_send(agent="verifier", message="...", timeout=120)
-```
-
-Message must include:
-- Clone path and branch name (if git task): `clone_path`, `branch_name`
-- The Verifier runs all tests inside the clone directory
-- Original task description
-- Approved plan
-- Implementer's response (artifacts, changes made)
-- Explicit instruction: "Verify the implementation against requirements. Respond with JSON only. Required fields: claim (PASS or FAIL with summary), evidence, risk, next_action, checks, confidence, verdict."
-
-Parse Verifier's response as JSON.
-
-> **Example Verifier response** (see AGENTS.md JSON Contract for full schema):
-> `{"claim": "PASS: rate limiter works correctly", "evidence": ["All 12 tests pass", "Handles 1k req/s"], "risk": ["No chaos testing"], "next_action": "verify", "checks": [{"name": "unit-tests", "status": "PASS", "output": "12/12"}], "confidence": 0.85, "verdict": "PASS"}`
-
-### Evaluate Verification Result
-
-- If `confidence >= convergence_threshold` AND `verdict == "PASS"`:
-  - Mark task `status` to `"completed"` in backlog
-  - Write result summary to `/project/state/decision_log.md`
-  - Proceed to Step 8
-
-- If `verdict == "FAIL"` AND `task.retry_count < max_implementation_retries`:
-  - Increment `task.retry_count` in backlog
-  - Extract failed checks from `verifier.checks` where `status != "PASS"` and capture each item's `name`, `status`, and `output`
-  - Build a structured feedback payload for Implementer containing:
-    - Original task description
-    - Failed checks only (`name`, `status`, `output`)
-    - Verifier `evidence`
-    - Verifier `risk`
-    - Explicit instruction: `"Fix ONLY the failed checks. Do NOT refactor or change code that passed verification."`
-  - Send this payload to Implementer via:
-    ```
-    sessions_send(agent="implementer", message="Verification failed. Retry implementation with this feedback: {task_description, failed_checks, verifier_evidence, verifier_risk, instruction}. Respond with JSON only. Required fields: claim, evidence, risk, next_action, artifacts.", timeout=120)
-    ```
-  - Parse Implementer's retry response as JSON
-  - Re-run verification explicitly by calling Verifier again with the same Step 7 input contract (original task description, approved plan, and latest Implementer response) via `sessions_send(agent="verifier", ...)` and re-evaluate Step 7 outcomes
-
-- If `verdict == "FAIL"` AND `task.retry_count >= max_implementation_retries`:
-  - Mark task `status` to `"failed"` in backlog
-  - Write failure summary to `/project/state/decision_log.md`
-  - Proceed to Step 8
+- Post verification phase notice to Slack.
+- Call Verifier with:
+  - original task
+  - approved plan
+  - implementation artifacts
+  - repo path and branch when applicable
+- Evaluate PASS/FAIL using `convergence_threshold` and retry budget.
+- On retry, send only failed checks back to Implementer.
 
 ## Step 7.5: Push and Create PR (Git Tasks Only)
 
-If the task has `target_repo` AND `verdict == "PASS"`:
-
-1. The Implementer already pushed during implementation. Verify:
-   ```
-   exec(command="/project/tools/cli/git.sh --op status --repo \"<repo>\" --task-id \"<task.id>\"", timeout=15)
-   ```
-
-2. Create a PR (NOT draft — ready for review):
-   ```
-   exec(command="/project/tools/cli/gh.sh --op pr-create --github-repo \"<task.github_repo>\" --branch \"ocma/<task.id>\" --base-branch \"<task.base_branch>\" --title \"[OCMA] <task.title>\" --body \"## Task\\n<task.description>\\n\\n## Changes\\n<implementer.artifacts summary>\\n\\n## Verification\\n<verifier.checks summary>\\n\\nGenerated by OCMA\" --task-id \"<task.id>\"", timeout=30)
-   ```
-
-3. Store PR metadata in backlog: `pr_number`, `pr_url`, `pr_status: "pending_approval"`
-4. Post merge approval request to Slack:
-   ```
-   exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"✅ PR #{pr_number} 생성완료: {pr_url}\n📝 {task.title}\n📊 {files_changed}개 파일, +{additions}/-{deletions}\n\n머지할까요? (응/아니오)\"", timeout=15)
-   ```
-
-The orchestrator then proceeds to Step 7.6. The PR stays in `pending_approval` state until the user responds via Slack (natural language or `/ocma merge`).
-
-If the task has NO target_repo → skip (non-git task).
-If `verdict == "FAIL"` → skip PR creation (proceed to retry or fail).
+- On PASS for git tasks, verify repo status and create PR.
+- Store `pr_number`, `pr_url`, `pr_status = "pending_approval"`.
+- Post merge approval request to Slack.
 
 ## Step 7.6: Extract Learnings from Verification
 
-Run after **EVERY** verification result (both PASS and FAIL), before Step 7.7.
-
-1. Read `/project/state/learning_log.json`.
-2. Build learning entries using the Learning Log Entry Schema in `/project/agents/orchestrator/AGENTS.md` (`id`, `task_id`, `type`, `content`, `tags`, `created_at`, `applied`).
-3. Extract based on verifier outcome:
-   - If `verdict == "FAIL"`: for each failed check in `verifier.checks` where `status != "PASS"`, create:
-     - `type`: `"verifier_failure"`
-     - `content`: `"Task {task.id}: {check.name} failed — {check.output}"`
-     - `tags`: `<task.learning_tags> + ["failure"]`
-   - If `verdict == "PASS"` and `confidence < 0.85`, create:
-     - `type`: `"performance_metric"`
-     - `content`: `"Task {task.id}: Passed with low confidence ({confidence}). Risks: {verifier.risk}"`
-     - `tags`: `<task.learning_tags> + ["low_confidence"]`
-   - If `verdict == "PASS"` and `confidence >= 0.85`, create:
-     - `type`: `"performance_metric"`
-     - `content`: `"Task {task.id}: High-confidence pass. Approach: {plan.recommended}"`
-     - `tags`: `<task.learning_tags> + ["success"]`
-4. For each new entry:
-   - `id`: `"learning-{unix_timestamp}"`
-   - `task_id`: `task.id`
-   - `created_at`: current ISO 8601 timestamp
-   - `applied`: `false`
-5. Append entry/entries to `entries`.
-6. If `entries.length > max_entries`, remove oldest entries first (FIFO) until within limit.
-7. Write updated `/project/state/learning_log.json`.
+- Append verifier-derived learning entries to `/project/state/learning_log.json` using the schema in `/project/host-repo/docs/orchestrator/SCHEMAS.md`.
+- Use the PASS/FAIL mapping recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 7.7: Self-Deploy (Self-Referential Tasks Only)
 
-If the task has `target_repo == "openclaw-multi-agent"` AND `verdict == "PASS"` AND `pr_url` is set:
-
-Self-referential tasks (OCMA improving itself) are auto-merged without user approval. Set `pr_status` to `"merged"` after successful merge.
-
-> **Rollback plan**: For self-referential changes, the PR description MUST include: (1) `git revert <commit-sha>` command for the merge commit, and (2) the last known good commit hash from `main` before merge. This enables instant rollback if the self-deploy breaks the orchestrator.
-
-1. **Auto-merge the PR** (self-referential tasks skip approval):
-   ```
-   exec(command="/project/tools/cli/gh.sh --op pr-merge --github-repo \"<task.github_repo>\" --pr-number \"<task.pr_number>\" --merge-method squash --task-id \"<task.id>\"", timeout=30)
-   ```
-   - If merge succeeds: update task `pr_status` to `"merged"`, log `"Self-deploy: PR #<pr_number> merged for <task.id>"`
-   - If merge fails: update task `pr_status` to `"pending_approval"`, log error, skip remaining self-deploy steps, proceed to Step 8. Post to Slack asking for manual merge.
-
-3. **Pull changes into host repo**:
-   ```
-   exec(command="/project/tools/cli/deploy.sh --op pull --task-id \"<task.id>\"", timeout=30)
-   ```
-   - This updates all volume-mounted directories (agents/, tools/, state/) immediately via the host repo mount at `/project/host-repo`.
-   - Changes take effect in the next cycle without container restart.
-
-4. **Record deployment**:
-   - Append to `/project/state/decision_log.md`: `"Self-deploy: merged PR #<pr_number> and pulled changes for <task.id>"`
-   - Post to Slack: `"🚀 자가배포: PR #{pr_number} 병합 및 배포 완료 — {task.id}"`
-
-If `target_repo != "openclaw-multi-agent"` → skip this step entirely.
-If `verdict == "FAIL"` → skip.
+- For PASS on `openclaw-multi-agent`, auto-merge eligible PRs and pull the host repo.
+- Log and report deployment.
+- If merge fails, keep the PR pending approval and stop self-deploy.
 
 ## Step 8: Update State and Report
 
-1. Read `/project/state/run_state.json`
-2. Increment `total_cycles` by 1
-3. Set `last_cycle_id` to the task ID
-4. Set `last_completed_step` to the final phase reached (e.g., "verify-pass", "verify-fail", "debate-escalated")
-5. Set `last_updated` to current ISO 8601 timestamp
-6. Reset `idle_cycles` to `0` (a task completed, so idle counter resets)
-7. Clear `cycle_lock`: set to `null` in run_state.json
-8. Write updated run_state back
-
-Post final status to Slack:
-```
-exec(command="openclaw message send --channel slack --target \"C0AK4MVUELA\" --message \"✅ 사이클 완료 | 작업: {task.title} | 결과: {result} | 총 {total_cycles}회\"", timeout=15)
-```
-
-### Audit Trail
-
-After updating state files, append a structured audit entry to `/project/state/decision_log.md`:
-
-```markdown
-### Cycle {total_cycles} — {ISO timestamp}
-- **Task**: {task_id} — {task_title}
-- **Debate**: {debate_epochs} epochs, convergence={yes/no}, tiebreak={yes/no}
-- **Decision**: {brief summary of approved plan, max 50 words}
-- **Implementation**: {files_changed} files, {insertions}+ {deletions}-
-- **Verification**: {verdict} (confidence: {confidence})
-- **Outcome**: {completed/failed/retrying}
-- **Duration**: {total_cycle_time_sec}s
-```
-
-This structured format enables automated parsing for trend analysis and post-mortems.
+- Update `/project/state/run_state.json`:
+  - increment `total_cycles`
+  - set `last_cycle_id`
+  - set `last_completed_step`
+  - update timestamps
+  - reset `idle_cycles`
+  - clear `cycle_lock`
+- Post final cycle status to Slack.
+- Append a structured audit trail entry to `/project/state/decision_log.md`.
 
 ## Step 8.5: Record Cycle Metrics
 
-Use the metrics entry schema from Orchestrator `AGENTS.md` (`cycle_id`, `timestamp`, `debate_epochs`, `debate_wall_time_sec`, `convergence_achieved`, `tiebreak_used`, `verification_verdict`, `verification_confidence`, `retry_count`, `total_cycle_time_sec`).
-
-1. Build a new metrics entry for the cycle that just finished:
-   - `cycle_id`: `task.id`
-   - `timestamp`: current ISO 8601 timestamp
-   - `debate_epochs`: debate epoch counter used this cycle
-   - `debate_wall_time_sec`: elapsed seconds from `debate_start_time` (recorded in Step 5) to now
-   - `convergence_achieved`: `true` if debate converged before `max_epochs`; otherwise `false`
-   - `tiebreak_used`: `true` if any forced tiebreak path was used; otherwise `false`
-   - `verification_verdict`: `"PASS"`, `"FAIL"`, or `"N/A"` (use `"N/A"` for escalated/blocked tasks)
-   - `verification_confidence`: Verifier confidence score, or `null`
-   - `retry_count`: `task.retry_count`
-   - `total_cycle_time_sec`: elapsed seconds from `cycle_start_time` (recorded in Step 4) to now
-2. Read `/project/state/metrics.json`.
-3. Append the new metrics entry to `entries`.
-4. Enforce FIFO cap using `max_entries = 200`: if `entries.length > max_entries`, remove oldest entries until length is `max_entries`.
-5. Write the updated metrics object back to `/project/state/metrics.json`.
+- Append one metrics entry to `/project/state/metrics.json` using the schema in `/project/host-repo/docs/orchestrator/SCHEMAS.md`.
+- Enforce FIFO retention.
 
 ## Step 9: Auto-Pause Check
 
-Read `/project/state/run_state.json`.
-
-Count consecutive cycles where no task moved to `"completed"`. If this count >= `max_cycles_without_progress`:
-
-1. Set `status` to `"paused"` in run_state
-2. Set `pause_reason` to `"Auto-paused: {N} cycles without progress"`
-3. Write updated run_state
-4. Post to Slack: "⏸️ 자동 정지: {N}회 진행 없음. /ocma resume 으로 재개하세요."
+- If no task has progressed to `completed` for `max_cycles_without_progress`, pause and notify Slack.
 
 ## Step 9.5: Clone Cleanup
 
-For the task just completed:
-1. If task has `clone_path` → `exec(command="rm -rf <clone_path>", timeout=15)`
-2. Remove lease from `/project/state/git_state.json`
-3. Update `active_clones` array in `git_state.json`
-
-### Memory and State Maintenance (every 20th cycle)
-
-If `total_cycles % 20 == 0`:
-
-1. **Decision log pruning**: Read `/project/state/decision_log.md`. If it exceeds 500 lines, keep only the last 300 lines. Write the pruned file.
-2. **Debate hash cleanup**: Read `/project/state/debate_hashes.json`. Remove entries older than 7 days (compare against timestamps). Write updated file.
-3. **Learning log compaction**: Read `/project/state/learning_log.json`. If entries exceed `max_entries` (200), remove oldest entries until at `max_entries`. All overflow entries should already be `applied: true`; if any are not, log a warning.
-4. Log: "Maintenance: pruned decision_log to {lines} lines, cleaned {N} stale hashes, compacted learning_log to {count} entries."
+- Remove the completed/failed task clone.
+- Remove matching lease and update active clone tracking.
 
 ## Step 9.6: Periodic Clone Sweep
 
-**Gate**: Read `total_cycles` from `/project/state/run_state.json`. If `total_cycles % 10 != 0` → skip this step.
-
-If `total_cycles % 10 == 0`:
-
-1. List all directories in `/project/workspaces/.clones/`
-2. For each clone directory (task-id):
-   - Read `/project/state/backlog.json`
-   - Search for a task with `id == task-id` and `status` in `["in_progress", "pending"]`
-   - If no matching active task exists → the clone is orphaned
-3. For each orphaned clone:
-   ```
-   exec(command="rm -rf /project/workspaces/.clones/<task-id>", timeout=15)
-   ```
-4. Count deleted clones. If count > 0:
-   - Append to `/project/state/decision_log.md`: `"Periodic sweep (cycle {total_cycles}): removed {count} orphaned clone(s)"`
-   - Post to Slack: `"🧹 정리: 고아 클론 {count}개 삭제"`
+- Every 10th cycle, remove orphaned clones and log the cleanup.
 
 ## Step 9.7: Self-Trigger Next Cycle
 
-Determine if the next cycle should be triggered immediately:
-
-1. Read `/project/state/backlog.json`.
-2. Check if any task has `status == "pending"`.
-3. If pending tasks exist:
-   - Trigger immediate next cycle:
-     ```
-     exec(command="openclaw system event --mode now --text 'cycle-complete: next pending task available'", timeout=15)
-     ```
-   - Log: `"Self-trigger: next cycle queued (pending tasks available)"`
-4. If NO pending tasks exist:
-   - Check if discovery is enabled and due (same logic as Step 3 discovery check).
-   - If discovery is due:
-     ```
-     exec(command="openclaw system event --mode now --text 'cycle-complete: discovery due'", timeout=15)
-     ```
-     - Log: `"Self-trigger: discovery cycle queued"`
-   - If discovery is NOT due:
-     - Do NOT self-trigger. Let the watchdog cron handle the next wake.
-     - Log: `"Idle: no pending tasks, no discovery due. Waiting for watchdog cron."`
+- If pending tasks remain, self-trigger immediately.
+- Otherwise, self-trigger only if discovery is due.
+- If neither applies, wait for the watchdog cron.
 
 ## Step 9.8: Tool Version Check & Graceful Restart
 
-This step runs after every cycle to reset the restart counter and check for CLI tool updates.
-
-1. **Reset restart counter** (cycle completed successfully):
-   ```
-   exec(command="/project/tools/cli/deploy.sh --op reset-counter --task-id \"cycle-<total_cycles>\"", timeout=5)
-   ```
-
-2. **Check tool versions**:
-   ```
-   exec(command="/project/tools/cli/deploy.sh --op version-check --task-id \"cycle-<total_cycles>\"", timeout=30)
-   ```
-   - Parse the JSON output. Check `updates_available` field.
-   - Exit code `2` = updates available. Exit code `0` = all up to date.
-
-3. **If updates are available** (`updates_available == true` or exit code `2`):
-   - Post to Slack: `"🔄 도구 업데이트 감지. 업데이트 적용을 위해 재시작합니다."`
-   - Append to `/project/state/decision_log.md`: `"Tool update restart triggered at cycle <total_cycles>"`
-   - Trigger graceful restart:
-     ```
-     exec(command="/project/tools/cli/deploy.sh --op restart --reason tool_update --task-id \"cycle-<total_cycles>\"", timeout=10)
-     ```
-   - This sends SIGTERM to PID 1 → container exits → podman restarts (`restart: unless-stopped`) → entrypoint.sh runs `npm update -g` → fresh start with updated tools.
-   - **NOTE**: After this exec, the current process terminates. No further steps execute.
-
-4. **If no updates available**: proceed normally (Step 9.7 already handled next cycle trigger).
-
-**Restart loop protection**: entrypoint.sh checks `/project/state/restart_state.json`. If `restart_count > 3` within 10 minutes, entrypoint adds a 60-second delay before starting. The counter resets on every successful cycle completion (step 1 above).
+- Reset restart counter.
+- Run tool version check.
+- If updates are available, post Slack notice and restart gracefully.
 
 ## Error Handling
 
-### JSON Response Validation
-
-After EVERY `sessions_send` call, validate the agent response:
-
-1. **Parse check**: Attempt to parse the response as JSON.
-   - If the response is not valid JSON: extract any JSON block from the response text (look for `{...}` patterns).
-   - If no JSON found: retry with explicit instruction: "Respond with ONLY a JSON object. No markdown, no explanatory text."
-   - If retry also fails: log raw response to decision_log.md and treat as agent failure.
-
-2. **Schema check**: Validate required fields exist:
-   - ALL agents: `claim` (string), `evidence` (array), `risk` (array), `next_action` (string)
-   - Planner: additionally `options` (array), `recommended` (string), `subtasks` (array)
-   - Critic: additionally `issues` (array), `verdict` (string matching APPROVE|REVISE|REJECT)
-   - Implementer: additionally `artifacts` (array)
-   - Verifier: additionally `checks` (array), `confidence` (number 0-1), `verdict` (string matching PASS|FAIL)
-
-3. **Value validation**:
-   - `next_action` must be one of: `implement`, `revise`, `escalate`, `verify`
-   - `confidence` must be between 0.0 and 1.0
-   - `verdict` must match expected enum values
-   - Arrays must not be empty
-
-4. **On validation failure**: Log which field failed, retry once with field-specific correction prompt. If still fails, use default values: `confidence: 0.3`, `verdict: "FAIL"`, `next_action: "escalate"`.
-
-### Step Failure Recovery
-
-If any heartbeat step fails:
-
-1. **exec failure** (non-zero exit): Retry once with same parameters. If still fails:
-   - Log error details to `/project/state/decision_log.md`
-   - Set task status to `"failed"` with error message in backlog
-   - Post error to Slack with step number and error summary
-   - Skip to Step 9 (cleanup)
-
-2. **sessions_send failure** (timeout or transport error): Retry once. If still fails:
-   - Same recovery as exec failure above
-
-3. **State file corruption**: If any state file fails to parse as JSON:
-   - Log the corruption event
-   - Attempt to read the file as raw text and extract valid JSON
-   - If unrecoverable: post CRITICAL alert to Slack, set run_state to "paused"
-   - Do NOT continue the cycle with corrupt state
-
-4. **Out of disk space**: If write operations fail:
-   - Run emergency cleanup: delete all clones in `/project/workspaces/.clones/` for completed/failed tasks
-   - Retry the write
-   - If still fails: pause and alert
-
-### Edge Case Recovery
-
-1. **Stale cycle_lock**: If `Date.parse(cycle_lock.locked_at) + 1800000 < Date.now()` → lock is stale. Clear it (`cycle_lock = null`), write `run_state.json`, log `"Cleared stale lock from {locked_at}"`, then proceed normally.
-   > Example: `locked_at = "2026-03-09T08:00:00Z"`, now = `"2026-03-09T08:45:00Z"` → elapsed = 2700s > 1800s → stale.
-
-2. **Corrupt state file**: `try { JSON.parse(content) } catch { match = content.match(/\{[\s\S]*\}/); if (match) JSON.parse(match[0]); else { set status="paused", pause_reason="Corrupt state: <filename>", alert Slack } }`.
-
-3. **Dependency timeout**: Before calling CLI tools, pre-check availability: `exec("npm ping", timeout=5)` or `exec("pip --version", timeout=5)`. Always pass explicit `--timeout` flags to CLI tools. If pre-check fails, skip task and post: `"⚠️ 도구 의존성 불가: {tool}"`.
+- Validate all agent JSON responses.
+- Retry once on `exec`, `sessions_send`, or JSON parsing failure.
+- Pause on unrecoverable state corruption or persistent storage failure.
+- Use the exact recovery recipes in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.

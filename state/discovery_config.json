@@ -23,7 +23,7 @@
     "max_consecutive_failures_before_disable": 5,
     "no_self_referential_tasks": false,
     "duplicate_detection": true,
-    "require_user_approval_above_priority": 0.8
+    "require_user_approval_above_priority": 1.1
   },
   "schedule": {
     "discovery_interval_cycles": 5,

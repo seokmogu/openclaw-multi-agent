@@ -1,13 +1,13 @@
 {
-  "max_epochs": 3,
-  "convergence_threshold": 0.7,
+  "max_epochs": 2,
+  "convergence_threshold": 0.9,
   "epoch_summary_max_tokens": 500,
   "anti_loop_enabled": true,
   "tiebreak_strategy": "lowest_risk",
   "max_cycles_without_progress": 5,
   "max_implementation_retries": 2,
   "max_debate_wall_time_sec": 600,
-  "per_tool_timeout_sec": 600,
+  "per_tool_timeout_sec": 0,
   "tools": {
     "planner": {
       "cli": "/project/tools/cli/claude.sh",
@@ -39,23 +39,62 @@
     }
   },
   "json_contract": {
-    "required_fields": ["claim", "evidence", "risk", "next_action"],
-    "next_action_values": ["implement", "revise", "escalate", "verify"],
+    "required_fields": [
+      "claim",
+      "evidence",
+      "risk",
+      "next_action"
+    ],
+    "next_action_values": [
+      "implement",
+      "revise",
+      "escalate",
+      "verify"
+    ],
     "max_claim_length": 200,
     "min_evidence_count": 1,
     "min_risk_count": 1
   },
+  "parallel_execution": {
+    "enabled": true,
+    "max_parallel_tasks": 3,
+    "strategy": "subtree",
+    "comment": "Spawn sessions_spawn subagents for independent tasks. Git tasks may run concurrently if targeting different repos."
+  },
   "fast_path": {
     "enabled": true,
-    "labels": ["trivial", "typo", "docs", "config"],
+    "labels": [
+      "trivial",
+      "typo",
+      "docs",
+      "config"
+    ],
     "description": "Tasks with these labels skip the debate phase and go directly: Planner -> Implementer -> Verifier"
   },
   "git": {
     "branch_prefix": "ocma",
-    "always_draft_pr": true,
+    "always_draft_pr": false,
     "max_clone_age_hours": 24,
     "lease_ttl_seconds": 3600,
     "cleanup_on_complete": true,
-    "protected_branches": ["main", "master", "develop"]
+    "protected_branches": [
+      "main",
+      "master",
+      "develop"
+    ],
+    "auto_merge": true,
+    "auto_merge_method": "squash"
+  },
+  "auto_merge": {
+    "enabled": true,
+    "require_pass": true,
+    "require_tests": true,
+    "comment": "Auto-merge all PASS-verified PRs. No user approval needed."
+  },
+  "pr_batching": {
+    "enabled": true,
+    "batch_size": 3,
+    "strategy": "same_repo",
+    "comment": "Accumulate up to 3 tasks per repo before creating a single PR. Tasks targeting different repos can be batched separately."
   }
 }

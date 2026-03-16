@@ -138,10 +138,11 @@
         primary: "anthropic/claude-opus-4-6",
         fallbacks: ["openai-codex/gpt-5.4"],  // Claude rate limit 시 GPT-5.4로 자동 전환
       },
+      bootstrapMaxChars: 1000000,  // 파일별 bootstrap 제한을 사실상 해제
+      bootstrapTotalMaxChars: 5000000,  // 전체 bootstrap 제한을 크게 완화
       subagents: {
-        runTimeoutSeconds: 600,  // 서브에이전트 10분 타임아웃
+        runTimeoutSeconds: 0,  // 서브에이전트 타임아웃 비활성화
         archiveAfterMinutes: 120,
-        autoStartAgents: ["planner", "implementer", "critic", "verifier"],
       },
     },
   },

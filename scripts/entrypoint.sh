@@ -7,7 +7,7 @@ set -e
 # ── 1. Auth Profile Symlinks ────────────────────────────────────────────────
 MAIN_AUTH="/home/node/.openclaw/auth-profiles.json"
 if [ -f "$MAIN_AUTH" ]; then
-  for agent in orchestrator planner implementer critic verifier; do
+  for agent in main orchestrator planner implementer critic verifier; do
     agent_dir="/home/node/.openclaw/agents/$agent/agent"
     mkdir -p "$agent_dir"
     if [ ! -e "$agent_dir/auth-profiles.json" ]; then
@@ -107,6 +107,37 @@ for repo_dir in /project/workspaces/.repos/*/; do
     git -C "$repo_dir" worktree prune 2>/dev/null || true
   fi
 done
+
+# ── 8. Token Sync: Codex CLI → OpenClaw auth-profiles ────────────────────────
+# Codex CLI auto-refreshes its token every 8 days in ~/.codex/auth.json.
+# OpenClaw reads from auth-profiles.json (type: "token", static).
+# This background loop syncs the fresh token every 4 hours.
+(
+  while true; do
+    sleep 14400  # 4 hours
+    python3 -c "
+import json, sys
+try:
+    with open('/home/node/.codex/auth.json') as f:
+        codex = json.load(f)
+    fresh_token = codex.get('tokens', {}).get('access_token', '')
+    if not fresh_token:
+        sys.exit(0)
+    with open('/home/node/.openclaw/auth-profiles.json') as f:
+        profiles = json.load(f)
+    current = profiles.get('profiles', {}).get('openai-codex:chatgpt-pro', {}).get('token', '')
+    if current == fresh_token:
+        sys.exit(0)
+    profiles['profiles']['openai-codex:chatgpt-pro']['token'] = fresh_token
+    with open('/home/node/.openclaw/auth-profiles.json', 'w') as f:
+        json.dump(profiles, f, indent=2)
+    print('[token-sync] Updated auth-profiles.json with fresh Codex token')
+except Exception as e:
+    print(f'[token-sync] Error: {e}', file=sys.stderr)
+" 2>&1 || true
+  done
+) &
+echo "[entrypoint] Token sync background loop started (every 4h)"
 
 echo "[entrypoint] OCMA container initialized successfully"
 
