@@ -45,7 +45,7 @@ GitHub Repos (clone → branch → implement → PR)
 현재 저장소는 **즉시 실행 가능한 완성형 배포본이라기보다, 런타임 파일 일부를 사용자가 로컬에서 준비하는 구조**입니다. `container-config/`는 커밋되지 않으므로 아래 절차대로 직접 만들어야 합니다.
 
 ### 0. 사전 요구사항
-- 호스트에 `podman` 또는 Docker 호환 `podman-compose`가 설치되어 있어야 합니다.
+- 호스트에 `docker` + `docker compose` 또는 `podman` + `podman-compose`가 설치되어 있어야 합니다.
 - 호스트에 `openclaw` CLI가 설치되어 있어야 합니다.
 - GitHub 작업을 하려면 `GH_TOKEN`이 필요합니다.
 - 모델 인증은 API key 대신 **호스트 로그인/OAuth 상태**를 마운트해서 사용합니다.
@@ -101,15 +101,20 @@ cp openclaw.json container-config/openclaw.json
 
 ### 4. 빌드 및 실행
 ```bash
+# Docker
+docker compose build
+docker compose up -d
+
+# 또는 Podman
 podman-compose build
 podman-compose up -d
 ```
 
 ### 5. 상태 확인
 ```bash
-podman ps
-podman exec ocma-gateway openclaw --version
-podman logs --tail 50 ocma-gateway
+docker ps                                          # 또는 podman ps
+docker exec ocma-gateway openclaw --version        # 또는 podman exec
+docker logs --tail 50 ocma-gateway                 # 또는 podman logs
 ```
 
 ### 6. 백로그에 태스크 추가
@@ -117,7 +122,8 @@ podman logs --tail 50 ocma-gateway
 
 ### 7. 사이클 시작
 ```bash
-podman exec ocma-gateway openclaw system event --mode now --text "start cycle"
+docker exec ocma-gateway openclaw system event --mode now --text "start cycle"
+# 또는 podman exec ocma-gateway openclaw system event --mode now --text "start cycle"
 ```
 
 ### 8. 호스트 기반 관리 스크립트 사용 시
@@ -235,13 +241,13 @@ openclaw-multi-agent/
 
 ```bash
 # 로그 확인
-podman logs --tail 50 ocma-gateway
+docker logs --tail 50 ocma-gateway               # 또는 podman logs
 
 # 활성 세션 목록
-podman exec ocma-gateway openclaw sessions
+docker exec ocma-gateway openclaw sessions        # 또는 podman exec
 
 # 크론 작업 목록
-podman exec ocma-gateway openclaw cron list
+docker exec ocma-gateway openclaw cron list       # 또는 podman exec
 
 # 사이클 상태 확인
 cat state/run_state.json | python3 -m json.tool
@@ -255,9 +261,9 @@ cat state/backlog.json | python3 -m json.tool
 
 - **컨테이너가 `container-config` 관련 에러로 시작 실패함**: `mkdir -p container-config && cp openclaw.json container-config/openclaw.json`를 먼저 실행하세요.
 - **커스텀 CA 파일이 없어 마운트 실패함**: `EXTRA_CA_CERT_PATH`를 비우거나, 기본값(`/etc/ssl/certs/ca-certificates.crt`)을 사용하세요.
-- **`podman-compose` 명령이 없음**: 호스트에 Podman/Compose 계열 도구가 설치되어 있는지 확인하세요.
+- **`docker compose` 또는 `podman-compose` 명령이 없음**: Docker Desktop + Compose 플러그인 또는 Podman + podman-compose가 설치되어 있는지 확인하세요.
 - **호스트 스크립트(`scripts/start.sh`)가 실패함**: 호스트에 `openclaw` CLI가 설치되어 있는지 확인하세요.
-- **GitHub 토큰 만료**: `.env` 파일을 갱신한 후 `podman-compose restart`를 실행하세요.
+- **GitHub 토큰 만료**: `.env` 파일을 갱신한 후 `docker compose restart` (또는 `podman-compose restart`)를 실행하세요.
 - **사이클 멈춤 현상**: `run_state.json`의 `cycle_lock`이 남아있는지 확인하고 필요하면 `null`로 초기화하세요.
 - **토론 타임아웃**: `runTimeoutSeconds` 설정을 확인하세요. 기본값은 1800초입니다.
 - **HEARTBEAT.md 잘림**: `bootstrapMaxChars` 설정을 늘리세요. 현재 기본값은 70000입니다.
