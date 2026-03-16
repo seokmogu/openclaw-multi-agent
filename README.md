@@ -1,42 +1,94 @@
 # OCMA: OpenClaw Multi-Agent Self-Evolving System
 
 ## 개요
-OCMA는 5개의 AI 에이전트가 협력하여 코드를 자동 생성하고 관리하는 자가발전형 시스템입니다. Orchestrator, Planner, Critic, Implementer, Verifier가 토론, 구현, 검증 과정을 거쳐 GitHub PR까지 자동으로 만듭니다.
+OCMA는 5개의 AI 에이전트가 협력하여 코드를 자동 생성하고 관리하는 자가발전형 시스템입니다. **OpenClaw 플랫폼 위에서 동작하는 참조 애플리케이션**으로, Orchestrator, Planner, Critic, Implementer, Verifier가 토론, 구현, 검증 과정을 거쳐 GitHub PR까지 자동으로 만듭니다.
 
 - **5개 AI 에이전트 협업**: claude-opus-4-6, claude-sonnet-4-6, gpt-5.4 모델을 조합하여 결과물을 만듭니다.
 - **서브에이전트 타임아웃**: `container-config/openclaw.json`의 `agents.defaults.subagents.runTimeoutSeconds`로 긴 작업 타임아웃을 조정합니다.
 - **인증 방식**: API 키를 직접 쓰지 않고 OAuth 및 로그인 세션 기반 인증을 사용합니다.
-- **완전 격리**: Podman 컨테이너 환경에서 실행되어 호스트 시스템과 분리됩니다.
+- **완전 격리**: Docker/Podman 컨테이너 환경에서 실행되어 호스트 시스템과 분리됩니다.
 - **자가발전(Self-evolution)**: 백로그가 비어있을 때 `goals.md`를 분석하여 새로운 태스크를 스스로 찾습니다.
+
+## 왜 이렇게 설계했나?
+
+### OpenClaw = 플랫폼, OCMA = 애플리케이션
+- **OpenClaw**은 게이트웨이, 세션 관리, 크론, 채널(Slack) 통합을 제공하는 런타임 플랫폼입니다.
+- **OCMA 에이전트들**(Orchestrator, Planner, Critic, Implementer, Verifier)은 OpenClaw 위에서 동작하는 애플리케이션입니다.
+- OpenClaw 없이는 에이전트들이 서로 통신할 수 없고, 에이전트 없이는 OpenClaw이 빈 껍데기입니다.
+- 비유하자면 OpenClaw은 OS, OCMA 에이전트는 그 위에서 돌아가는 앱과 같습니다.
+
+### 왜 CLI 도구(Claude, Codex, Gemini)를 설치하나?
+실행 경로가 2개 존재합니다:
+1. **OpenClaw 세션**: 에이전트 간 일반 대화 (OpenClaw이 모델 라우팅 및 컨텍스트 관리)
+2. **CLI 직접 호출**: 토론(debate) 사이클에서 Orchestrator가 각 에이전트 역할을 수행하기 위해 직접 실행
+- `debate_config.json`에서 각 역할에 CLI를 매핑합니다:
+  - **Planner** → `claude.sh` (Claude Code CLI)
+  - **Critic** → `codex.sh` (Codex CLI)
+  - **Implementer** → `claude.sh`
+  - **Verifier** → `gemini.sh`
+- 토론 과정에서 구조화된 JSON 응답이 엄격하게 필요하기 때문에, 모델의 원시 API보다 제어력이 높은 CLI 직접 호출 방식을 사용합니다.
+
+### 왜 다른 벤더 모델을 섞나?
+- 같은 모델(같은 벤더) 간의 토론은 서로 쉽게 동의해버리는 경향(Echo Chamber)이 있습니다.
+- **Planner**(Claude/Anthropic) vs **Critic**(GPT/OpenAI) 구도를 통해 서로 다른 학습 데이터와 시각을 충돌시킵니다.
+- 이를 통해 더 다양하고 비판적인 토론이 가능해지며 결과물의 품질이 향상됩니다.
+- **Verifier**도 Gemini(Google)로 분리하여 독립적인 제3의 시각으로 검증합니다.
+
+### 인증이 호스트 마운트인 이유
+- Claude, Codex, Gemini 등 최신 CLI 도구의 OAuth 로그인은 브라우저 인증이 필요합니다.
+- Docker 컨테이너 안에서는 브라우저를 열 수 없으므로 인증이 불가능합니다.
+- **해결책**: 호스트에서 먼저 로그인한 후, 생성된 credential 디렉토리를 컨테이너에 마운트합니다.
+  - `~/.claude`: Claude Code 세션 (Read-only)
+  - `~/.codex`: Codex OAuth 토큰 (Read-write: 자동 갱신 필요)
+  - `~/.gemini`: Gemini 세션 (Read-only)
+  - `~/.config/gh`: GitHub CLI 인증 (Read-only)
+- API 키가 아닌 OAuth/세션 기반 인증을 사용하므로, 과금이 사용자의 개인 구독(Pro/Max 등) 플랜에 포함됩니다.
+- 보안을 위해 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`는 의도적으로 빈 값으로 설정하여 호스트의 환경변수가 유입되는 것을 차단합니다.
+
+### Docker vs Podman
+- 대기업(250인 이상)은 Docker Desktop 라이선스 비용 이슈로 인해 Podman을 선호합니다.
+- 스타트업, 개인, 오픈소스 프로젝트는 Docker를 무료로 사용할 수 있습니다.
+- OCMA는 `compose.yml` 스펙이 동일하므로 두 환경을 모두 지원하며 코드 변경 없이 선택하여 사용할 수 있습니다.
+
+### 클라우드 인프라 연결 (선택사항)
+- OCMA 컨테이너에는 AWS CLI, gcloud, Vercel, Supabase, Terraform 등이 사전 설치되어 있습니다.
+- `scripts/infra-connect.sh`를 통해 클라우드 provider를 연결, 검증하고 상태를 확인할 수 있습니다.
+- 최소한의 정보(토큰, 역할 ARN 등)만 제공하면 자동으로 연결 및 리소스 디스커버리를 수행합니다.
+- 컨테이너 시작 시 `entrypoint.sh`가 설정된 provider를 자동으로 검증합니다.
 
 ## 아키텍처 다이어그램
 ```
 User/Slack/Cron
     ↓
-┌─ Podman Container (ocma-gateway) ──────────────────┐
-│  OpenClaw Gateway (ws://0.0.0.0:18789)              │
-│                                                      │
-│  Orchestrator (claude-opus-4-6)                      │
-│    ├─ Step 0: Safety Pre-Check                       │
-│    ├─ Step 0.5: Cycle Lock                           │
-│    ├─ Step 1-2: Pick task, load debate config        │
-│    ├─ Step 3: Task Discovery (self-evolution)        │
-│    ├─ Step 5: Debate                                 │
-│    │   ├─ Planner (claude-sonnet-4-6) ── propose     │
-│    │   ├─ Critic (gpt-5.4) ── challenge              │
-│    │   └─ Planner ── revise                          │
-│    ├─ Step 6: Implement                              │
-│    │   └─ Implementer (claude-sonnet-4-6)            │
-│    ├─ Step 7: Verify                                 │
-│    │   └─ Verifier (gpt-5.4)                         │
-│    ├─ Step 8: Git commit + PR                        │
-│    └─ Step 9.7: Self-Trigger Next Cycle              │
-│                                                      │
-│  Volume Mounts:                                      │
-│    ./agents/ → /project/agents/                      │
-│    ./state/  → /project/state/                       │
-│    ./tools/  → /project/tools/ (ro)                  │
-└──────────────────────────────────────────────────────┘
+┌─ Docker/Podman Container (ocma-gateway) ────────────────────────────┐
+│                                                                      │
+│  OpenClaw Platform (런타임)                                          │
+│   ├─ Gateway (HTTP/WS)                                               │
+│   ├─ Session Manager (에이전트 간 통신)                              │
+│   └─ Cron Scheduler (heartbeat 트리거)                               │
+│                                                                      │
+│  OCMA Agents (애플리케이션)                                          │
+│   ├─ Orchestrator (claude-opus-4-6) ── 전체 지휘                     │
+│   │                                                                  │
+│   │  경로 1: OpenClaw 세션 (에이전트 간 대화)                       │
+│   │   ├─ sessions_send → Planner                                    │
+│   │   ├─ sessions_send → Critic                                     │
+│   │   └─ sessions_send → Implementer/Verifier                      │
+│   │                                                                  │
+│   │  경로 2: CLI 직접 호출 (토론 사이클)                            │
+│   │   ├─ exec claude.sh → Planner (Claude, Anthropic)               │
+│   │   ├─ exec codex.sh → Critic (GPT, OpenAI)                      │
+│   │   ├─ exec claude.sh → Implementer (Claude, Anthropic)           │
+│   │   └─ exec gemini.sh → Verifier (Gemini, Google)                │
+│   │                                                                  │
+│   └─ git.sh / gh.sh → GitHub (clone, branch, PR)                   │
+│                                                                      │
+│  호스트 마운트 (인증)                                                │
+│   ├─ ~/.claude (ro) ── Claude OAuth 세션                            │
+│   ├─ ~/.codex (rw) ── Codex OAuth 토큰                              │
+│   ├─ ~/.config/gh (ro) ── GitHub CLI 인증                           │
+│   └─ ~/.aws, ~/.config/gcloud (ro) ── 클라우드 (선택)              │
+└──────────────────────────────────────────────────────────────────────┘
     ↓
 GitHub Repos (clone → branch → implement → PR)
 ```
@@ -183,7 +235,7 @@ Planner와 Critic 사이의 토론은 엄격한 규칙에 따라 진행됩니다
 ## 프로젝트 구조
 ```text
 openclaw-multi-agent/
-├── compose.yml                    # Podman Compose 설정
+├── compose.yml                    # Docker/Podman Compose 설정
 ├── Containerfile                  # 컨테이너 이미지 빌드
 ├── openclaw.json                  # 기본 OpenClaw 설정 템플릿
 ├── .env                           # 로컬 시크릿 (직접 생성, gitignored)
@@ -203,9 +255,12 @@ openclaw-multi-agent/
 │   ├── start.sh                   # 호스트 openclaw 기반 시작 스크립트
 │   ├── status.sh                  # 상태 확인 스크립트
 │   ├── stop.sh                    # 중지 스크립트
-│   └── patch-gpt54.py             # GPT-5.4 모델 패치
+│   ├── patch-gpt54.py             # GPT-5.4 모델 패치
+│   └── infra-connect.sh           # 클라우드 인프라 연결 및 검증 스크립트
 ├── skills/                        # 프로젝트 전용 스킬
 ├── state/                         # 버전 관리되는 기본 상태 파일 + 런타임 상태
+│   ├── infra_credentials.json     # 클라우드 인프라 인증 정보 (gitignored 권장)
+│   └── ...
 ├── tools/cli/                     # CLI 래퍼 및 테스트
 └── workspaces/                    # 에이전트 작업 공간 (gitignored)
 ```
@@ -230,11 +285,12 @@ openclaw-multi-agent/
 - `.env.example`는 예시 템플릿일 뿐이며, 실제 인증 정보는 `.env`에만 넣어야 합니다.
 
 ## 인증
-보안을 위해 API 키 대신 세션 기반 인증을 우선합니다.
+보안과 비용 효율성을 위해 API 키 대신 세션 기반 인증을 우선합니다. 자세한 설계 이유는 상단의 **"왜 이렇게 설계했나? - 인증이 호스트 마운트인 이유"** 섹션을 참고하세요.
 
-- **Anthropic**: `auth-profiles.json`에 저장된 OAuth 토큰을 사용합니다.
-- **OpenAI**: Codex CLI를 통한 ChatGPT Pro OAuth 인증을 사용합니다.
-- **GitHub**: `.env`의 `GH_TOKEN`을 컨테이너 내부의 `.git-credentials` 파일로 변환하여 사용합니다.
+- **Anthropic**: 호스트의 `~/.claude` 디렉토리를 마운트하여 Claude Code OAuth 세션을 사용합니다.
+- **OpenAI**: 호스트의 `~/.codex` 디렉토리를 마운트하여 Codex CLI의 ChatGPT Pro OAuth 토큰을 사용합니다. (자동 갱신을 위해 rw 권한 필요)
+- **Google**: 호스트의 `~/.gemini` 디렉토리를 마운트하여 Gemini CLI 세션을 사용합니다.
+- **GitHub**: `.env`의 `GH_TOKEN`을 사용하거나 호스트의 `~/.config/gh`를 마운트하여 인증합니다.
 
 ## 모니터링
 다음 명령어를 사용하여 시스템 상태를 실시간으로 확인할 수 있습니다.
@@ -264,6 +320,7 @@ cat state/backlog.json | python3 -m json.tool
 - **`docker compose` 또는 `podman-compose` 명령이 없음**: Docker Desktop + Compose 플러그인 또는 Podman + podman-compose가 설치되어 있는지 확인하세요.
 - **호스트 스크립트(`scripts/start.sh`)가 실패함**: 호스트에 `openclaw` CLI가 설치되어 있는지 확인하세요.
 - **GitHub 토큰 만료**: `.env` 파일을 갱신한 후 `docker compose restart` (또는 `podman-compose restart`)를 실행하세요.
+- **인증 토큰 만료**: 컨테이너 내부에서 인증이 풀린 경우, 호스트에서 `claude login`, `codex auth login`, `gemini login` 등을 수행하여 세션을 갱신한 후 컨테이너를 재시작하세요.
 - **사이클 멈춤 현상**: `run_state.json`의 `cycle_lock`이 남아있는지 확인하고 필요하면 `null`로 초기화하세요.
 - **토론 타임아웃**: `runTimeoutSeconds` 설정을 확인하세요. 기본값은 1800초입니다.
 - **HEARTBEAT.md 잘림**: `bootstrapMaxChars` 설정을 늘리세요. 현재 기본값은 70000입니다.

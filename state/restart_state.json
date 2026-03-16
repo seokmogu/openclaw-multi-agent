@@ -2,6 +2,6 @@
   "restart_count": 0,
   "last_restart_at": null,
   "restart_reason": null,
-  "last_successful_cycle_at": null,
+  "last_successful_cycle_at": "2026-03-16T07:55:00Z",
   "tool_versions": {}
 }

@@ -1,4 +1,17 @@
 {
   "max_entries": 200,
-  "entries": []
+  "entries": [
+    {
+      "cycle_id": "cycle-20260316T075500Z",
+      "timestamp": "2026-03-16T07:55:00Z",
+      "debate_epochs": 0,
+      "debate_wall_time_sec": 0,
+      "convergence_achieved": false,
+      "tiebreak_used": false,
+      "verification_verdict": "FAIL",
+      "verification_confidence": 0.0,
+      "retry_count": 0,
+      "total_cycle_time_sec": 0
+    }
+  ]
 }

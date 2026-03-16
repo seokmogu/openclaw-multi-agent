@@ -1,13 +1,13 @@
 {
   "status": "stopped",
-  "last_updated": null,
-  "last_heartbeat_at": null,
-  "last_cycle_id": null,
-  "last_completed_step": null,
+  "last_updated": "2026-03-16T07:55:00Z",
+  "last_heartbeat_at": "2026-03-16T07:55:00Z",
+  "last_cycle_id": "cycle-20260316T075500Z",
+  "last_completed_step": "step-1-stop",
   "started_by": null,
   "stopped_by": null,
   "pause_reason": null,
-  "total_cycles": 0,
+  "total_cycles": 1,
   "idle_cycles": 0,
   "active_task_id": null,
   "config": {
