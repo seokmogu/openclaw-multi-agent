@@ -435,3 +435,81 @@ openclaw sessions_send \
 | `epoch_summary_max_tokens` | 500 | 에포크 요약 최대 토큰 |
 | `anti_loop_enabled` | true | 루프 감지 활성화 |
 | `tiebreak_strategy` | "lowest_risk" | 타이브레이크 전략 (lowest_risk / highest_evidence / orchestrator_judgment) |
+
+## 10. Progressive Summary Compression
+
+멀티에포크 토론에서 토큰 효율을 높이기 위해 오래된 에포크 요약을 더 공격적으로 압축한다.
+
+### 압축 규칙
+
+| Epoch 거리 | 최대 토큰 | 포함 내용 |
+|-----------|----------|----------|
+| N (현재) | 500 | 전체 요약 (Task, Proposed, Challenged, Revised, Status, Open Issues) |
+| N-1 | 300 | 핵심만 (Task, Final Decision, Open Issues) |
+| N-2 이전 | 150 | 한 줄 요약 (Decision + Status만) |
+
+### 압축 적용 시점
+
+- 에포크 전환 시 (새 세션 시작 전) 이전 에포크 요약을 재압축
+- `debate_config.json`의 `token_efficiency.progressive_summary`에서 각 레벨의 토큰 한도를 읽음
+- 압축된 요약은 `/project/state/decision_log.md`에 기록하되, 에이전트 컨텍스트에는 압축 버전만 전달
+
+### 압축 템플릿 (N-2 이전)
+
+```markdown
+Epoch {N}: {Decision} ({Status}) — {한 줄 핵심}
+```
+
+### 설정
+
+`debate_config.json`의 `token_efficiency.progressive_summary`:
+```json
+{
+  "enabled": true,
+  "epoch_n_minus_2_max_tokens": 150,
+  "epoch_n_minus_1_max_tokens": 300,
+  "current_epoch_max_tokens": 500
+}
+```
+
+## 11. Debate Skip Conditions
+
+특정 조건에서 Critic 단계를 건너뛰고 바로 구현으로 넘어갈 수 있다. 토큰 절약을 위한 메커니즘이지만, 품질 저하 위험이 있으므로 보수적으로 적용한다.
+
+### 조건 (모두 충족 시)
+
+1. `debate_skip.enabled == true` (기본값: false)
+2. Planner의 첫 응답에서 `next_action == "implement"`
+3. Planner의 `risk` 배열에 high-severity 항목 없음 (severity 키워드: "보안", "데이터 손실", "장애", "security", "data loss", "outage")
+4. metrics.json에서 유사 패턴 (동일 `learning_tags`) 성공 이력이 `matching_success_pattern_count` 이상
+
+### 스킵 시 동작
+
+```
+Planner propose → (Critic 스킵) → Implementer → Verifier
+```
+
+- Orchestrator가 직접 Planner 응답을 평가하고 구현 단계로 전달
+- `decision_log.md`에 `[DEBATE-SKIP]` 태그로 기록
+- 검증 실패 시, 다음 동일 패턴에서는 스킵 비활성화 (학습)
+
+### 안전장치
+
+- **기본 비활성**: `debate_skip.enabled` 기본값은 `false`
+- **최소 데이터**: 20+ 사이클 이후에만 활성화 권장
+- **자동 비활성화**: 스킵한 사이클의 FAIL rate가 30%를 넘으면 자동으로 `debate_skip.enabled = false`로 전환
+- **수동 제어**: `/ocma debate-skip on|off` Slack 명령으로 토글 가능
+
+### 설정
+
+`debate_config.json`의 `token_efficiency.debate_skip`:
+```json
+{
+  "enabled": false,
+  "conditions": {
+    "planner_next_action": "implement",
+    "no_high_severity_risks": true,
+    "matching_success_pattern_count": 3
+  }
+}
+```

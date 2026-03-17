@@ -69,6 +69,13 @@ Before any cycle logic, inspect the incoming message.
 - Write tuning changes to `/project/state/debate_config.json` and `/project/state/decision_log.md` when needed.
 - Use the exact thresholds and bounds in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
+## Step 2.65: Token Budget Init
+
+- Read `token_efficiency` from `/project/state/debate_config.json`.
+- Initialize cycle token counter: `{ context: 0, debate: 0, implementation: 0, verification: 0 }`.
+- Use `token_budget_per_cycle` as the soft cap for total token usage.
+- Token estimation: 1 token ≈ 4 chars (English) or ≈ 2 chars (Korean).
+
 ## Step 3: Pick Next Task
 
 - Read `/project/state/backlog.json`.
@@ -105,6 +112,20 @@ For git tasks:
   - minimal repo context for repo tasks
 - Keep context small and focused.
 - Use the exact context recipe from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
+
+## Step 4.55: Hindsight Injection
+
+- Search `/project/state/learning_log.json` for entries with `structured_hindsight` where `applicable_patterns` overlaps with current task `learning_tags`.
+- Take max 3 matching entries, sorted by recency.
+- Build hindsight context block:
+  ```
+  ## 관련 실패 교훈 (Hindsight)
+  - [category]: [root_cause] → [recommendation]
+  ```
+- Insert into Planner context before the task description.
+- If no matching hindsight exists, skip this step (no-op).
+- Keep total context within `token_efficiency.context_budget_tokens`.
+- Use the detailed recipe from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 5: Run Debate (Epoch Loop)
 
@@ -155,6 +176,17 @@ For git tasks:
 - Append verifier-derived learning entries to `/project/state/learning_log.json` using the schema in `/project/host-repo/docs/orchestrator/SCHEMAS.md`.
 - Use the PASS/FAIL mapping recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
+## Step 7.65: Structured Hindsight Extraction
+
+- If verification verdict is FAIL:
+  - Read Verifier response `checks` and `evidence` arrays.
+  - Classify failure into category: `logic-error`, `edge-case`, `integration`, `requirement-mismatch`, `test-gap`.
+  - Build `structured_hindsight` object: `{ category, root_cause, recommendation, applicable_patterns }`.
+  - Attach to the learning_log entry created in Step 7.6.
+  - No separate LLM call — derive from Verifier's existing JSON response.
+- If verification verdict is PASS, skip this step.
+- Use the detailed recipe from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
+
 ## Step 7.7: Self-Deploy (Self-Referential Tasks Only)
 
 - For PASS on `openclaw-multi-agent`, auto-merge eligible PRs and pull the host repo.
@@ -177,6 +209,17 @@ For git tasks:
 
 - Append one metrics entry to `/project/state/metrics.json` using the schema in `/project/host-repo/docs/orchestrator/SCHEMAS.md`.
 - Enforce FIFO retention.
+
+## Step 8.55: Per-Turn Outcome Scoring
+
+- Score each debate turn retroactively based on cycle outcome.
+- Base score: PASS+high confidence → 0.8, PASS+low confidence → 0.6, FAIL → 0.3.
+- Apply adjustments: tiebreak penalty (-0.1), fast convergence bonus (+0.1), revision quality bonus (+0.1), FAIL attribution penalty (-0.15).
+- Clamp all scores to [0.0, 1.0].
+- Store as `turn_scores` array in the metrics entry written in Step 8.5.
+- Update `fast_path.stats` with task label success/failure data.
+- No LLM call — scoring is purely rule-based.
+- Use the detailed recipe from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 9: Auto-Pause Check
 

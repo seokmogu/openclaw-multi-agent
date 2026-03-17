@@ -1,6 +1,6 @@
 {
-  "max_epochs": 3,
-  "convergence_threshold": 0.75,
+  "max_epochs": 2,
+  "convergence_threshold": 0.7,
   "epoch_summary_max_tokens": 500,
   "anti_loop_enabled": true,
   "tiebreak_strategy": "lowest_risk",
@@ -61,16 +61,7 @@
     "strategy": "subtree",
     "comment": "Spawn sessions_spawn subagents for independent tasks. Git tasks may run concurrently if targeting different repos."
   },
-  "fast_path": {
-    "enabled": true,
-    "labels": [
-      "trivial",
-      "typo",
-      "docs",
-      "config"
-    ],
-    "description": "Tasks with these labels skip the debate phase and go directly: Planner -> Implementer -> Verifier"
-  },
+
   "git": {
     "branch_prefix": "ocma",
     "always_draft_pr": true,
@@ -96,5 +87,63 @@
     "batch_size": 3,
     "strategy": "same_repo",
     "comment": "Accumulate up to 3 tasks per repo before creating a single PR. Tasks targeting different repos can be batched separately."
+  },
+  "token_efficiency": {
+    "token_budget_per_cycle": 15000,
+    "context_budget_tokens": 4000,
+    "memory_search_limit_debate": 2,
+    "memory_search_limit_implementation": 3,
+    "progressive_summary": {
+      "enabled": true,
+      "epoch_n_minus_2_max_tokens": 150,
+      "epoch_n_minus_1_max_tokens": 300,
+      "current_epoch_max_tokens": 500
+    },
+    "debate_skip": {
+      "enabled": false,
+      "conditions": {
+        "planner_next_action": "implement",
+        "no_high_severity_risks": true,
+        "matching_success_pattern_count": 3
+      },
+      "comment": "Skip Critic when conditions met. Disabled by default — enable after 20+ cycles of data."
+    }
+  },
+  "fast_path": {
+    "enabled": true,
+    "labels": [
+      "trivial",
+      "typo",
+      "docs",
+      "config"
+    ],
+    "description": "Tasks with these labels skip the debate phase and go directly: Planner -> Implementer -> Verifier",
+    "auto_expansion": {
+      "enabled": true,
+      "min_success_count": 5,
+      "min_confidence": 0.85,
+      "max_fail_rate": 0.2,
+      "candidate_labels": [],
+      "comment": "Auto-expand fast_path labels when a task pattern consistently succeeds. Auto-shrink if FAIL rate exceeds max_fail_rate."
+    },
+    "stats": {}
+  },
+  "model_routing": {
+    "enabled": false,
+    "rules": [
+      {
+        "condition": "fast_path == true",
+        "planner_model": "claude-sonnet-4-6",
+        "critic_model": "skip",
+        "comment": "Fast-path tasks skip critic entirely"
+      },
+      {
+        "condition": "priority_score >= 0.9",
+        "planner_model": "claude-opus-4-6",
+        "critic_model": "codex",
+        "comment": "High-priority tasks use the most capable models"
+      }
+    ],
+    "comment": "Heuristic model routing. Disabled by default — enable after validating cost savings."
   }
 }
