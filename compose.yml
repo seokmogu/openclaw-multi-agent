@@ -107,14 +107,14 @@ services:
       - ${HOME}/.config/gcloud:/home/node/.config/gcloud:ro
 
     ports:
-      - "${HOST_GATEWAY_PORT:-19789}:18789"
+      - "127.0.0.1:${HOST_GATEWAY_PORT:-19789}:18789"
 
     command:
       - node
       - dist/index.js
       - gateway
       - --bind
-      - lan
+      - loopback
       - --port
       - "18789"
 
