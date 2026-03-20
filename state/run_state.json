@@ -1,10 +1,10 @@
 {
-  "status": "idle",
-  "last_updated": null,
+  "status": "running",
+  "last_updated": "2026-03-20T09:41:30Z",
   "last_heartbeat_at": null,
   "last_cycle_id": null,
   "last_completed_step": null,
-  "started_by": null,
+  "started_by": "manual",
   "stopped_by": null,
   "pause_reason": null,
   "total_cycles": 0,

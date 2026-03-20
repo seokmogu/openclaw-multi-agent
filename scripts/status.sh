@@ -20,7 +20,9 @@ BACKLOG_FILE="$STATE_DIR/backlog.json"
 DECISION_LOG_FILE="$STATE_DIR/decision_log.md"
 DEBATE_HASHES_FILE="$STATE_DIR/debate_hashes.json"
 OPENCLAW_PROFILE="${OPENCLAW_PROFILE:-openclaw-multi-agent}"
+PROFILE_SAFE="$(printf "%s" "$OPENCLAW_PROFILE" | tr -c '[:alnum:]_.-' '_')"
 OPENCLAW_CMD=(openclaw --profile "$OPENCLAW_PROFILE")
+export PROFILE_SAFE
 
 # ─────────────────────────────────────────────
 # 색상 정의
@@ -44,6 +46,7 @@ status_color() {
         stopping) echo -e "${YELLOW}${BOLD}◐ STOPPING${NC}" ;;
         paused)   echo -e "${YELLOW}${BOLD}◑ PAUSED${NC}" ;;
         stopped)  echo -e "${RED}${BOLD}○ STOPPED${NC}" ;;
+        idle)     echo -e "${CYAN}${BOLD}◌ IDLE${NC}" ;;
         error)    echo -e "${RED}${BOLD}✖ ERROR${NC}" ;;
         *)        echo -e "${DIM}? UNKNOWN${NC}" ;;
     esac
@@ -139,12 +142,20 @@ for filename in required_files:
         print(f"    {fail(filename)}")
 
 print(f"  {CYAN}Cron:{NC}")
-cron_state_file = os.path.join(state_dir, "cron_state.json")
+profile_safe = os.environ.get("PROFILE_SAFE", "")
+cron_candidates = []
+if profile_safe:
+    cron_candidates.append(os.path.join(state_dir, f"cron_state.{profile_safe}.json"))
+cron_candidates.append(os.path.join(state_dir, "cron_state.json"))
+cron_state_file = None
 cron_job_id = None
 
-if os.path.isfile(cron_state_file):
+for candidate in cron_candidates:
+    if not os.path.isfile(candidate):
+        continue
+    cron_state_file = candidate
     try:
-        with open(cron_state_file) as f:
+        with open(candidate) as f:
             cron_data = json.load(f)
 
         for key in ("cron_job_id", "job_id", "id"):
@@ -152,6 +163,7 @@ if os.path.isfile(cron_state_file):
             if value:
                 cron_job_id = str(value)
                 break
+        break
     except Exception:
         cron_job_id = None
 
@@ -243,6 +255,8 @@ elif status == "stopping":
     status_display = f"{YELLOW}{BOLD}◐ STOPPING{NC}"
 elif status == "paused":
     status_display = f"{YELLOW}{BOLD}◑ PAUSED{NC}"
+elif status == "idle":
+    status_display = f"{CYAN}{BOLD}◌ IDLE{NC}"
 elif status == "stopped":
     status_display = f"{RED}{BOLD}○ STOPPED{NC}"
 else:
