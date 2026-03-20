@@ -20,7 +20,7 @@ Usage: $0 --op OPERATION --repo REPO --task-id ID [OPTIONS]
 
 Required:
   --op OPERATION         clone|branch-create|checkout|commit|push|status|diff|log|rebase|worktree-prune|remote-url
-  --repo REPO            Repository name (e.g., agent-recruitment-platform)
+  --repo REPO            Repository name (e.g., my-target-repo)
   --task-id ID           Task identifier (used for clone path)
 
 Optional:

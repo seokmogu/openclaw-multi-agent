@@ -1,14 +1,14 @@
 {
-  "status": "paused",
-  "last_updated": "2026-03-17T05:55:00Z",
-  "last_heartbeat_at": "2026-03-17T05:55:00Z",
-  "last_cycle_id": "cycle-20260317T051900Z",
-  "last_completed_step": "idle-heartbeat",
+  "status": "idle",
+  "last_updated": null,
+  "last_heartbeat_at": null,
+  "last_cycle_id": null,
+  "last_completed_step": null,
   "started_by": null,
   "stopped_by": null,
-  "pause_reason": "수동 정지 요청",
-  "total_cycles": 7,
-  "idle_cycles": 2,
+  "pause_reason": null,
+  "total_cycles": 0,
+  "idle_cycles": 0,
   "active_task_id": null,
   "config": {
     "max_cycles_without_progress": 5,
@@ -18,6 +18,6 @@
   },
   "pid": null,
   "cycle_lock": null,
-  "last_completed_task_id": "task-20260316-observability-upgrade-readiness",
-  "last_discovery_at": "2026-03-16T09:56:53Z"
+  "last_completed_task_id": null,
+  "last_discovery_at": null
 }
