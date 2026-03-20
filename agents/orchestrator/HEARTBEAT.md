@@ -16,16 +16,21 @@ Before any cycle logic, inspect the incoming message.
 
 ## Step 0: Safety Pre-Check
 
-- Read `/project/state/discovery_config.json` and `/project/state/backlog.json`.
-- Enforce:
-  - consecutive failure safety
-  - self-referential task blocking when enabled
-  - priority ceiling for auto-generated tasks
-- Use the exact safety recipes from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
+- Run `/project/scripts/safety-check.sh --state-dir /project/state`.
+- Parse the JSON output from stdout.
+- If exit code is `1` (unsafe), read `checks` array for the blocking reason:
+  - `consecutive_failure` FAIL → discovery was auto-disabled; skip to idle.
+  - `stale_lock` BLOCKED → another cycle is active; stop immediately.
+  - `self_referential_block` BLOCKED → self-referential tasks were blocked.
+  - `priority_ceiling` CAPPED → auto-generated tasks were capped (informational).
+- If exit code is `0`, proceed to Step 0.2.
+- The script handles all safety enforcement codified from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
 ## Step 0.2: Agent Session Preflight
 
-- Verify planner and implementer session availability.
+- Read `/project/openclaw.json` agent definitions.
+- Skip agents where `enabled` is `false` — do not preflight or dispatch to disabled agents.
+- For each enabled agent, verify planner and implementer session availability.
 - If sessions are unavailable, switch the whole cycle to CLI fallback.
 - Use the session mapping in `AGENTS.md` and the detailed fallback recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 
@@ -59,9 +64,11 @@ Before any cycle logic, inspect the incoming message.
 
 ## Step 2.5: Running Prompt Evolution
 
-- Build `running_prompt_text` from unapplied learnings in `/project/state/learning_log.json`.
-- Mark used learnings as applied.
-- Use the grouping and update recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
+- Run `/project/scripts/learning-sync.sh --state-dir /project/state --mark-applied --max-entries 20`.
+- Capture stdout as `running_prompt_text`.
+- The script reads unapplied entries from `learning_log.json`, groups by type, builds the prompt, and marks entries as applied.
+- If output is empty, skip prompt injection.
+- See `/project/host-repo/docs/orchestrator/OPERATIONS.md` for the grouping recipe this script implements.
 
 ## Step 2.6: Convergence Auto-Tuning
 
@@ -79,12 +86,17 @@ Before any cycle logic, inspect the incoming message.
 ## Step 3: Pick Next Task
 
 - Read `/project/state/backlog.json`.
-- Rank pending tasks by:
+- Filter out tasks where `blocked_by` contains IDs of tasks not yet `completed`.
+- Rank eligible pending tasks by:
   1. `priority_score` when present
   2. priority bucket
   3. older `created_at`
   4. backlog order
-- Mark the selected task `in_progress`.
+- When `parallel_execution.enabled` is true in `debate_config.json`:
+  - Select up to `max_parallel_tasks` independent tasks (no mutual `blocked_by` dependencies).
+  - Use `sessions_spawn` for parallel tasks targeting different repos.
+  - The primary task follows the normal debate cycle; parallel tasks run in background sessions.
+- Mark all selected tasks `in_progress`.
 
 If no pending task exists:
 
@@ -115,17 +127,12 @@ For git tasks:
 
 ## Step 4.55: Hindsight Injection
 
-- Search `/project/state/learning_log.json` for entries with `structured_hindsight` where `applicable_patterns` overlaps with current task `learning_tags`.
-- Take max 3 matching entries, sorted by recency.
-- Build hindsight context block:
-  ```
-  ## 관련 실패 교훈 (Hindsight)
-  - [category]: [root_cause] → [recommendation]
-  ```
-- Insert into Planner context before the task description.
-- If no matching hindsight exists, skip this step (no-op).
+- Run `/project/scripts/learning-sync.sh --state-dir /project/state --task-tags <comma-separated learning_tags>`.
+- Capture stdout — if it contains a `## 관련 실패 교훈 (Hindsight)` block, insert it into Planner context before the task description.
+- The script searches `learning_log.json` for entries with `structured_hindsight` where `applicable_patterns` overlaps with the task's `learning_tags`, takes max 3, and builds the block.
+- If output is empty or contains no hindsight section, skip this step (no-op).
 - Keep total context within `token_efficiency.context_budget_tokens`.
-- Use the detailed recipe from `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
+- See `/project/host-repo/docs/orchestrator/OPERATIONS.md` for the hindsight recipe this script implements.
 
 ## Step 5: Run Debate (Epoch Loop)
 
@@ -136,6 +143,10 @@ For git tasks:
   3. Planner revise
   4. Orchestrator decide
 - Parse every response using the JSON contract from `/project/host-repo/docs/orchestrator/SCHEMAS.md`.
+- **Severity-based convergence**: After Critic challenge, read `severity_score` (0.0–1.0) from Critic JSON.
+  - If `severity_score < debate_config.severity_convergence_threshold` (default 0.3) and verdict is `APPROVE`, auto-converge without further epochs.
+  - If `severity_score >= 0.7`, the Critic's issues are considered blocking — require Planner revision.
+  - Between 0.3–0.7, proceed with normal convergence logic.
 - If convergence is reached, proceed to Step 5.5.
 - If debate stalls or exceeds limits, tiebreak using the recipe in `/project/host-repo/docs/orchestrator/OPERATIONS.md`.
 - Record debate learning at conclusion.

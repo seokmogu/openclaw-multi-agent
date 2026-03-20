@@ -18,9 +18,23 @@ All agent responses must include:
 Role-specific fields:
 
 - Planner: `options`, `recommended`, `subtasks`
-- Critic: `issues`, `verdict`
+- Critic: `issues`, `verdict`, `severity_score`
 - Implementer: `artifacts`
 - Verifier: `checks`, `confidence`, `verdict`
+
+### Critic `severity_score`
+
+A float `0.0–1.0` representing the aggregate severity of all issues found. The Critic computes this as the maximum severity weight across issues:
+
+- `critical` = 1.0
+- `major` = 0.7
+- `minor` = 0.3
+- `nitpick` = 0.1
+
+Used by the Orchestrator in Step 5 for threshold-based auto-convergence:
+
+- `severity_score < severity_convergence_threshold` (default 0.3) + `APPROVE` verdict → auto-converge
+- `severity_score >= 0.7` → issues are blocking, require Planner revision
 
 ## Response Efficiency Rules
 
@@ -91,6 +105,7 @@ Common optional fields:
 - `pr_number`, `pr_url`, `pr_status`
 - `fast_path`
 - `generated_by`, `source_task_id`, `learning_tags`, `priority_score`
+- `blocked_by` (string[], optional): Array of task IDs that must reach `completed` status before this task becomes eligible for picking. Used by Step 3 to enable dependency-based parallel execution. Empty array or omitted means no dependencies.
 
 Auto-discovery conventions:
 

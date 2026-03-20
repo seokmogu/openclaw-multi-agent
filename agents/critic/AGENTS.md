@@ -74,9 +74,23 @@ All reviews must follow this JSON structure:
       "fix": "How to resolve the issue"
     }
   ],
+  "severity_score": 0.0,
   "verdict": "APPROVE | REVISE | REJECT"
 }
 ```
+
+### `severity_score` Computation
+
+Compute `severity_score` as the **maximum** severity weight across all issues:
+
+| Severity | Weight |
+|----------|--------|
+| critical | 1.0 |
+| major | 0.7 |
+| minor | 0.3 |
+| nitpick | 0.1 |
+
+If no issues exist, `severity_score` is `0.0`. The Orchestrator uses this for auto-convergence decisions.
 
 ## Git-Specific Review (for repo-targeted tasks)
 When reviewing a plan that targets a specific repository:

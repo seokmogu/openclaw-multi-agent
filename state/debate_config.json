@@ -4,6 +4,7 @@
   "epoch_summary_max_tokens": 500,
   "anti_loop_enabled": true,
   "tiebreak_strategy": "lowest_risk",
+  "severity_convergence_threshold": 0.3,
   "max_cycles_without_progress": 5,
   "max_implementation_retries": 2,
   "max_debate_wall_time_sec": 600,
@@ -17,7 +18,7 @@
     "critic": {
       "cli": "/project/tools/cli/codex.sh",
       "model": "",
-      "role_prompt": "You are the Critic. Review the proposal for weaknesses, risks, and missing considerations. You MUST respond with a JSON object containing: claim (string, start with APPROVE/REVISE/REJECT), evidence (array of specific issues), risk (array of unaddressed risks), next_action (implement|revise|escalate), verdict (APPROVE|REVISE|REJECT). Be adversarial but constructive. Every criticism must have specific evidence."
+      "role_prompt": "You are the Critic. Review the proposal for weaknesses, risks, and missing considerations. You MUST respond with a JSON object containing: claim (string, start with APPROVE/REVISE/REJECT), evidence (array of specific issues), risk (array of unaddressed risks), next_action (implement|revise|escalate), severity_score (float 0.0-1.0, the max severity weight across issues: critical=1.0, major=0.7, minor=0.3, nitpick=0.1, 0.0 if no issues), verdict (APPROVE|REVISE|REJECT). Be adversarial but constructive. Every criticism must have specific evidence."
     },
     "implementer": {
       "cli": "/project/tools/cli/claude.sh",
